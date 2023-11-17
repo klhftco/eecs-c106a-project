@@ -5,5 +5,5 @@ Daniel Tan
 Frank Fan
 Japinder Narula
 Katherine Yuen
-Leo Sun
+Leo Huang
 Thien Phan
