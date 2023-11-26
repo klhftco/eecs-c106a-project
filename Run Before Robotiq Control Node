@@ -1,0 +1,6 @@
+Run before starting Robotiq control node: sudo chmod 777 /dev/ttyUSB0
+rosrun robotiq_2f_gripper_control Robotiq2FGripperRtuNode.py /dev/ttyUSB0
+
+rosrun robotiq_2f_gripper_control Robotiq2FGripperSimpleController.py
+
+sudo chmod 777 /dev/ttyUSB0 && rosrun robotiq_2f_gripper_control Robotiq2FGripperRtuNode.py /dev/ttyUSB0
