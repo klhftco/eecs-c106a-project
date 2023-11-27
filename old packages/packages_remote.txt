@@ -1,1 +1,2 @@
-https://github.com/ros-industrial/robotiq.git 
+https://github.com/ros-industrial/robotiq.git (need for gripper)
+https://github.com/Camshaft54/ur5_rrt_control.git (not sure if need) 
