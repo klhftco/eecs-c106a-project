@@ -6,6 +6,7 @@
 # Import the rospy package. For an import to work, it must be specified
 # in both the package manifest AND the Python file in which it is used.
 import rospy
+from robotiq_2f_gripper_control.msg import _Robotiq2FGripper_robot_output as outputMsg
 
 # Import the String message type from the /msg directory of the std_msgs package.
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
@@ -18,6 +19,7 @@ def talker():
     # std_msgs/String to the topic /chatter_talk
     pub = rospy.Publisher('/scaled_pos_joint_traj_controller/command', JointTrajectory, queue_size=10)
     
+    # gripper_pub = rospy.Publisher("Robotiq2FGripperRobotOutput", outputMsg.Robotiq2FGripper_robot_output, queue_size=10)
     # Create a timer object that will sleep long enough to result in a 10Hz
     # publishing rate
     r = rospy.Rate(5) # 10hz
@@ -25,23 +27,32 @@ def talker():
     n = 0
     # Loop until the node is killed with Ctrl-C
     while not rospy.is_shutdown():
-        # Construct a string that we want to publish (in Python, the "%"
-        # operator functions similarly to sprintf in C or MATLAB)
+	# Construct a string that we want to publish (in Python, the "%"
+	# operator functions similarly to sprintf in C or MATLAB)
+
+	######################## EDITED BY THIEN TO ADD GRIPPER INITIALIZATION################
+        # gripper_command = outputMsg.Robotiq2FGripper_robot_output()
+        # gripper_command.rACT = 1
+        # gripper_command.rGTO = 1
+        # gripper_command.rSP = 255
+        # gripper_command.rFR = 150
+        ######################################################################################
+
         command = JointTrajectory()
         command.header.stamp = rospy.Time.now()
         command.joint_names = ["elbow_joint", "shoulder_lift_joint", "shoulder_pan_joint",
                                 "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"]
-        point_start = JointTrajectoryPoint()
-        point_pick = JointTrajectoryPoint()
-        point_hold = JointTrajectoryPoint()
-        point_end = JointTrajectoryPoint()
+        # point_start = JointTrajectoryPoint()
+        # point_pick = JointTrajectoryPoint()
+        # point_hold = JointTrajectoryPoint()
+        # point_end = JointTrajectoryPoint()
 
         positions = [
-            [-1.55, -1.6, -1.5, 4.7, 1.6, 2.85],
-            [-1.52, -1.9, -1.5, 4.85, 1.6, 2.85],
-            [-1.52, -1.9, -1.5, 4.85, 1.6, 2.85],
-            [-1.55, -1.6, -1.5, 4.7, 1.6, 2.85],
-            [-1.55, -1.6, -1.8, 4.7, 1.6, 2.85],
+            [-1.52, -1.6, -1.5, 4.7, 1.6, 2.85],
+            [-1.2, -1.9, -1.5, 4.85, 1.6, 2.85],
+            [-1.2, -1.9, -1.5, 4.85, 1.6, 2.85],
+            [-1.2, -1.6, -1.5, 4.7, 1.6, 2.85],
+            [-1.2, -1.6, -1.8, 4.7, 1.6, 2.85],
         ]
 
         point_array = []
@@ -56,7 +67,19 @@ def talker():
         print(command)
         # Publish our string to the 'chatter_talk' topic
         pub.publish(command)
+        
+        #################################################################### 
+        # if n == 1:
+        #     if (gripper_command.rPR == 255):
+        #         gripper_command.rPR = 0
+        #         gripper_pub.publish(gripper_command)
+
+        #     gripper_command.rPR = 255
+        #     gripper_pub.publish(gripper_command)
+        # ##########################################################################
         if n == 3:
+        #     gripper_command.rPR = 0
+        #     gripper_pub.publish(gripper_command)
             break
         n += 1
         # print("Published to the topic!")

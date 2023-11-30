@@ -10,7 +10,9 @@ import sys
 
 def main():
     # Wait for the IK service to become available
+    print("Started the program!")
     rospy.wait_for_service('compute_ik')
+    print("compute_ik service is running.")
     rospy.init_node('service_query')
     # Create the function used to call the service
     compute_ik = rospy.ServiceProxy('compute_ik', GetPositionIK)

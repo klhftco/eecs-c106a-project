@@ -1,0 +1,1 @@
+roslaunch ur_robot_driver ur5_bringup.launch robot_ip:=172.22.22.2
