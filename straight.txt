@@ -4,3 +4,26 @@
 4.680000
 1.600000
 3.000000
+
+12/03/2023:
+
+Current initial readings: 
+x: -15
+y: 30 
+z: 5
+
+
+Heavy box measurement
+
+x: -10 
+y: 15
+z: 30 
+
+Coin boxe measurement
+x:-20 
+y:35
+z:0 
+
+Rubik's cube gripper pos: 141, anything bigger than 141 is detectable
+Heavy block gripper pos: 95, anything bigger than 95 is detectable
+

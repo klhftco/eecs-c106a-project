@@ -1,24 +1,28 @@
 #!/usr/bin/env python
+# import xxlimited
 import rospy
 
 # Messages
 from control_msgs.msg import JointTrajectoryControllerState
 from robotiq_2f_gripper_control.msg import _Robotiq2FGripper_robot_output as outputMsg
+from robotiq_2f_gripper_control.msg import _Robotiq2FGripper_robot_input as inputMsg
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+from geometry_msgs.msg import WrenchStamped as forceReading
 
 # Global variable for the received current position of the robot
 v = 1
+gOBJ = 3
+gPR = 0
 
 # Publishers for the desired trajectory and gripper
 trajectory_pub = rospy.Publisher('/scaled_pos_joint_traj_controller/command', JointTrajectory, queue_size=10)
-gripper_pub = rospy.Publisher("Robotiq2FGripperRobotOutput", outputMsg.Robotiq2FGripper_robot_output, queue_size=10)
-
+gripper_pub = rospy.Publisher("Robotiq2FGripperRobotOutput", outputMsg.Robotiq2FGripper_robot_output, queue_size=100)
 
 # Message to publish the desired trajectory
 command = JointTrajectory()
 command.joint_names = ["elbow_joint",   "shoulder_lift_joint", "shoulder_pan_joint",
                        "wrist_1_joint", "wrist_2_joint",       "wrist_3_joint"]
-# Note that the `rostopic echo scaled_pos_joint_traj_controller/state' lists joint positions in the following order:
+# Note that the `rostopic echo scaled_pos_joint_traj_controller/state` lists joint positions in the following order:
                         # [ "shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
                         # "wrist_1_joint", "wrist_2_joint",      "wrist_3_joint"]
 point = JointTrajectoryPoint()
@@ -28,27 +32,24 @@ positions = [  # Array of desired positions
     [-1.42, -1.94, -1.20, 4.95, 1.51, 3.27],  # Pick up position
     [-1.49, -1.83, -1.40, 5.38, 1.50, 3.27],  # Raised center position
     [-1.11, -1.93, -1.55, 4.58, 1.53, 4.57],  # Hovering above the drop
-    [-1.44, -1.94, -1.50, 4.98, 1.47, 1.45],  # Drop location
+    [-1.34, -1.95, -1.55, 4.86, 1.53, 3.00],  # Drop location
     [-1.56, -1.61, -1.54, 4.69, 1.62, 2.85]   # End position
 ]
 # Probing pose to push down at Rubik's cube is -1.45, -1.85, -1.46, 4.91, 1.62, 2.85
 # Probing pose to push down at foam sponge is -1.55, -1.88, -1.44, 5.01, 1.61, 2.85
 num_positions = len(positions)
 
-
 # Array of desired gripper positions, corresponding with the desired robot positions above
-gripper_positions = [0, 0, 0, 140, 140, 140, 0]  
-
+gripper_positions = [0, 0, 0, 150, 150, 150, 0]  
 
 i = 0  # Index to show which desired position we're calling
 
-
+# Commands to control the gripper
 gripper_command = outputMsg.Robotiq2FGripper_robot_output()
 gripper_command.rACT = 1 # Activate
 gripper_command.rGTO = 1 # Start
-gripper_command.rSP = 200 # Speed
-gripper_command.rFR = 100 # Force
-
+gripper_command.rSP = 255 # Speed
+gripper_command.rFR = 255 # Force
 
 """
 Subscriber fuction that listens to the robot's current position and
@@ -61,54 +62,96 @@ def subscriber_callback(received_message):
     # print("v:", v)
 
 """
-Callback function that runs every 1 second to check if the velocity
+Sunscriber function that listens to the gripper's object detection
+sensors and determines whether or not an object has been detected.
+"""
+def object_detection(received_message):
+    global gOBJ
+    global gPR
+    gOBJ = received_message.gOBJ
+    gPR = received_message.gPR
+
+"""
+Subscriber function that listens to the `wrench` node and prints the
+x, y, and z forces read by the force sensor. Causes a lot of clutter
+in the terminal.
+"""
+# def force(received_message):
+    # print("force_x = " + str(received_message.wrench.force.x))
+    # print("force_y = " + str(received_message.wrench.force.y))
+    # print("force_z = " + str(received_message.wrench.force.z))
+    # print("")
+
+"""
+Callback function that runs every 0.5 seconds to check if the velocity
 of the robot is 0. If the velocity is 0, it publishes the next
-desired trajectory.
+desired trajectory and actuates the gripper as necessary.
 """
 def timer_callback(event):
     global command, i, points
     if v == 0:
-        if i == num_positions:
-            raise Exception("Reached the final desired position. Shutting down.")
+        if i == num_positions:  # Has reached last listed desired position
+            raise Exception("Reached the final desired position. Need to shut down.")
 
-        gripper_command.rPR = gripper_positions[i]
-        gripper_pub.publish(gripper_command)
-        rospy.sleep(1)
+        if i == 1:  # If we successfully arrived at the starting position
+            gripper_pub.publish(gripper_command)  # active the gripper
+
+        if gripper_positions[i] == 0:  # If gripper should be open, keep it open
+            gripper_command.rPR = 0
+            gripper_pub.publish(gripper_command)
+        else:
+            if gPR == 0:
+                gripper_position = 50  # Start at position 50 and work our way up
+                while gOBJ != 2:  # While the gripper has not detected an inner grip
+                    gripper_position += 2  # Close the gripper by 2 points
+                    gripper_command.rPR = gripper_position
+                    gripper_pub.publish(gripper_command)
+                    print("gOBJ: " + str(gOBJ))
+                    print("gPR: " + str(gPR))
+                    print("")
+                    if gripper_position >= gripper_positions[i]:
+                        break  # Stop at maximum threashold closed value
+
+                    # This sleep value and the one below it need to
+                    # add up to equal the polling rate for the timer
+                    # in the `main()` function.
+                    rospy.sleep(0.25)  
+
+        rospy.sleep(0.25)
 
         command.header.stamp = rospy.Time.now()
-        point.time_from_start = rospy.Duration((i+1) * 3)
+        point.time_from_start = rospy.Duration((i+1) * 1)  # Change the 1 to 3 or 5 to make the robot move slower
         point.positions = positions[i]
         command.points = [point]
 
-        for j in range(3):
+        for j in range(3):  # Publish desired trajectory three times because the arm's refresh rate is finnicky
             trajectory_pub.publish(command)
-            print(command)
+            # print(command)
 
         i += 1
-
 
 """
 Function that starts the robot's movement sequence. Starts by opening
 the gripper and then creating the subscriber node, which listens to
 the topic where the robot's current position and velocities are
 published. A timer calls the publisher function `timer_callback`
-every 1 second.
+every 0.5 seconds.
 """
 def main():
-    # Open the gripper
-    global gripper_command
-    gripper_command.rPR = 0
-    gripper_pub.publish(gripper_command)
+    # # Open the gripper
+    # global gripper_command
+    # gripper_command.rPR = 0
+    # gripper_pub.publish(gripper_command)
 
-    # Start the subscriber node for the robot's current position
+    # Start the subscriber nodes for the robot's current position, object detection, and force sensor readings
     rospy.Subscriber('/scaled_pos_joint_traj_controller/state', JointTrajectoryControllerState, subscriber_callback)
-    
+    rospy.Subscriber('/Robotiq2FGripperRobotInput', inputMsg.Robotiq2FGripper_robot_input, object_detection)
+    # rospy.Subscriber('/wrench', forceReading, force)
+
     # Initialize the timer that will call the publisher callback
-    timer = rospy.Timer(rospy.Duration(2), timer_callback)
+    timer = rospy.Timer(rospy.Duration(0.5), timer_callback)
     rospy.spin()
     timer.shutdown()
-
-
           
 # Terminal  
 if __name__ == '__main__':
