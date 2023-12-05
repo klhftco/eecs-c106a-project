@@ -31,9 +31,9 @@ positions = [  # Array of desired positions
     [-1.25, -1.95, -1.21, 4.77, 1.53, 3.26],  # Hovering above the pickup position
     [-1.42, -1.94, -1.20, 4.95, 1.51, 3.27],  # Pick up position
     [-1.49, -1.83, -1.40, 5.38, 1.50, 3.27],  # Raised center position
-    [-1.11, -1.93, -1.55, 4.58, 1.53, 4.57],  # Hovering above the drop
-    [-1.34, -1.95, -1.55, 4.86, 1.53, 3.00],  # Drop location
-    [-1.56, -1.61, -1.54, 4.69, 1.62, 2.85]   # End position
+    [-1.11, -1.93, -1.55, 4.58, 1.53, 4.57],  # Hovering above the drop position
+    [-1.34, -1.95, -1.55, 4.86, 1.53, 3.00],  # Drop location (object will be a centimeter above the table)
+    [-1.56, -1.61, -1.54, 4.69, 1.62, 2.85]   # End position (same as starting position)
 ]
 # Probing pose to push down at Rubik's cube is -1.45, -1.85, -1.46, 4.91, 1.62, 2.85
 # Probing pose to push down at foam sponge is -1.55, -1.88, -1.44, 5.01, 1.61, 2.85
@@ -49,7 +49,7 @@ gripper_command = outputMsg.Robotiq2FGripper_robot_output()
 gripper_command.rACT = 1 # Activate
 gripper_command.rGTO = 1 # Start
 gripper_command.rSP = 255 # Speed
-gripper_command.rFR = 255 # Force
+gripper_command.rFR = 150 # Force
 
 """
 Subscriber fuction that listens to the robot's current position and
@@ -88,15 +88,18 @@ of the robot is 0. If the velocity is 0, it publishes the next
 desired trajectory and actuates the gripper as necessary.
 """
 def timer_callback(event):
-    global command, i, points
+    global command, gripper_command, i, points
     if v == 0:
         if i == num_positions:  # Has reached last listed desired position
             raise Exception("Reached the final desired position. Need to shut down.")
 
         if i == 1:  # If we successfully arrived at the starting position
-            gripper_pub.publish(gripper_command)  # active the gripper
+            gripper_command.rACT = 0
+            gripper_pub.publish(gripper_command)  # Active the gripper
+            gripper_command.rACT = 1
+            gripper_pub.publish(gripper_command)  # Active the gripper
 
-        if gripper_positions[i] == 0:  # If gripper should be open, keep it open
+        if gripper_positions[i] == 0:  # If gripper should be open, command it to open
             gripper_command.rPR = 0
             gripper_pub.publish(gripper_command)
         else:
@@ -138,11 +141,6 @@ published. A timer calls the publisher function `timer_callback`
 every 0.5 seconds.
 """
 def main():
-    # # Open the gripper
-    # global gripper_command
-    # gripper_command.rPR = 0
-    # gripper_pub.publish(gripper_command)
-
     # Start the subscriber nodes for the robot's current position, object detection, and force sensor readings
     rospy.Subscriber('/scaled_pos_joint_traj_controller/state', JointTrajectoryControllerState, subscriber_callback)
     rospy.Subscriber('/Robotiq2FGripperRobotInput', inputMsg.Robotiq2FGripper_robot_input, object_detection)

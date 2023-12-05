@@ -1,47 +1,8 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
-# Software License Agreement (BSD License)
-#
-# Copyright (c) 2013, SRI International
-# All rights reserved.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions
-# are met:
-#
-#  * Redistributions of source code must retain the above copyright
-#    notice, this list of conditions and the following disclaimer.
-#  * Redistributions in binary form must reproduce the above
-#    copyright notice, this list of conditions and the following
-#    disclaimer in the documentation and/or other materials provided
-#    with the distribution.
-#  * Neither the name of SRI International nor the names of its
-#    contributors may be used to endorse or promote products derived
-#    from this software without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
-# FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-# COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
-# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
-# BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
-# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
-# ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-# POSSIBILITY OF SUCH DAMAGE.
-#
-# Author: Acorn Pooley, Mike Lautman
-
-## BEGIN_SUB_TUTORIAL imports
-##
 ## To use the Python MoveIt interfaces, we will import the `moveit_commander`_ namespace.
 ## This namespace provides us with a `MoveGroupCommander`_ class, a `PlanningSceneInterface`_ class,
 ## and a `RobotCommander`_ class. (More on these below)
-##
-## We also import `rospy`_ and some messages that we will use:
-##
 
 import sys
 import copy
@@ -52,7 +13,12 @@ import geometry_msgs.msg
 from math import pi
 from std_msgs.msg import String
 from moveit_commander.conversions import pose_to_list
-## END_SUB_TUTORIAL
+
+# additional imports 
+from robotiq_2f_gripper_control.msg import _Robotiq2FGripper_robot_output as robotiq_output_msg
+from robotiq_2f_gripper_control.msg import _Robotiq2FGripper_robot_input as robotiq_input_msg
+import tf2_ros
+import numpy as np
 
 def all_close(goal, actual, tolerance):
   """
@@ -76,16 +42,16 @@ def all_close(goal, actual, tolerance):
 
   return True
 
-class MoveGroupPythonIntefaceTutorial(object):
+class UR5_Movement(object):
   """MoveGroupPythonIntefaceTutorial"""
   def __init__(self):
-    super(MoveGroupPythonIntefaceTutorial, self).__init__()
+    super(UR5_Movement, self).__init__()
 
     ## BEGIN_SUB_TUTORIAL setup
     ##
     ## First initialize `moveit_commander`_ and a `rospy`_ node:
     moveit_commander.roscpp_initialize(sys.argv)
-    rospy.init_node('move_group_python_interface_tutorial',
+    rospy.init_node('ur5_movement',
                     anonymous=True)
 
     ## Instantiate a `RobotCommander`_ object. This object is the outer-level interface to
@@ -101,7 +67,7 @@ class MoveGroupPythonIntefaceTutorial(object):
     ## arm so we set ``group_name = panda_arm``. If you are using a different robot,
     ## you should change this value to the name of your robot arm planning group.
     ## This interface can be used to plan and execute motions on the Panda:
-    group_name = "panda_arm"
+    group_name = "manipulator"
     group = moveit_commander.MoveGroupCommander(group_name)
 
     ## We create a `DisplayTrajectory`_ publisher which is used later to publish
@@ -118,21 +84,21 @@ class MoveGroupPythonIntefaceTutorial(object):
     ## ^^^^^^^^^^^^^^^^^^^^^^^^^
     # We can get the name of the reference frame for this robot:
     planning_frame = group.get_planning_frame()
-    print "============ Reference frame: %s" % planning_frame
+    print("============ Reference frame: %s" % planning_frame)
 
     # We can also print the name of the end-effector link for this group:
     eef_link = group.get_end_effector_link()
-    print "============ End effector: %s" % eef_link
+    print("============ End effector: %s" % eef_link)
 
     # We can get a list of all the groups in the robot:
     group_names = robot.get_group_names()
-    print "============ Robot Groups:", robot.get_group_names()
+    print("============ Robot Groups:", robot.get_group_names())
 
     # Sometimes for debugging it is useful to print the entire state of the
     # robot:
-    print "============ Printing robot state"
-    print robot.get_current_state()
-    print ""
+    print("============ Printing robot state")
+    print(robot.get_current_state())
+    print()
     ## END_SUB_TUTORIAL
 
     # Misc variables
@@ -145,7 +111,13 @@ class MoveGroupPythonIntefaceTutorial(object):
     self.eef_link = eef_link
     self.group_names = group_names
 
-  def go_to_joint_state(self):
+    ### initialize gripper nodes ###
+    self.robotiq_gripper_pub = rospy.Publisher(
+      "Robotiq2FGripperRobotOutput", robotiq_output_msg.Robotiq2FGripper_robot_output, queue_size=10)
+    self.robotiq_gripper_sub = rospy.Subscriber(
+      "Robotiq2FGripperRobotInput", robotiq_input_msg.Robotiq2FGripper_robot_input, self.gripper_status_callback)
+
+  def go_to_joint_state(self, joint_goal):
     # Copy class variables to local variables to make the web tutorials more clear.
     # In practice, you should use the class variables directly unless you have a good
     # reason not to.
@@ -158,14 +130,14 @@ class MoveGroupPythonIntefaceTutorial(object):
     ## The Panda's zero configuration is at a `singularity <https://www.quora.com/Robotics-What-is-meant-by-kinematic-singularity>`_ so the first
     ## thing we want to do is move it to a slightly better configuration.
     # We can get the joint values from the group and adjust some of the values:
-    joint_goal = group.get_current_joint_values()
-    joint_goal[0] = 0
-    joint_goal[1] = -pi/4
-    joint_goal[2] = 0
-    joint_goal[3] = -pi/2
-    joint_goal[4] = 0
-    joint_goal[5] = pi/3
-    joint_goal[6] = 0
+    # joint_goal = group.get_current_joint_values()
+    # joint_goal[0] = 0
+    # joint_goal[1] = -pi/4
+    # joint_goal[2] = 0
+    # joint_goal[3] = -pi/2
+    # joint_goal[4] = 0
+    # joint_goal[5] = pi/3
+    # joint_goal[6] = 0
 
     # The go command can be called with joint values, poses, or without any
     # parameters if you have already set the pose or joint target for the group
@@ -182,7 +154,7 @@ class MoveGroupPythonIntefaceTutorial(object):
     current_joints = self.group.get_current_joint_values()
     return all_close(joint_goal, current_joints, 0.01)
 
-  def go_to_pose_goal(self):
+  def go_to_pose_goal(self, pose_goal):
     # Copy class variables to local variables to make the web tutorials more clear.
     # In practice, you should use the class variables directly unless you have a good
     # reason not to.
@@ -194,11 +166,11 @@ class MoveGroupPythonIntefaceTutorial(object):
     ## ^^^^^^^^^^^^^^^^^^^^^^^
     ## We can plan a motion for this group to a desired pose for the
     ## end-effector:
-    pose_goal = geometry_msgs.msg.Pose()
-    pose_goal.orientation.w = 1.0
-    pose_goal.position.x = 0.4
-    pose_goal.position.y = 0.1
-    pose_goal.position.z = 0.4
+    # pose_goal = geometry_msgs.msg.Pose()
+    # pose_goal.orientation.w = 1.0
+    # pose_goal.position.x = 0.4
+    # pose_goal.position.y = 0.1
+    # pose_goal.position.z = 0.4
     group.set_pose_target(pose_goal)
 
     ## Now, we call the planner to compute the plan and execute it.
@@ -216,7 +188,6 @@ class MoveGroupPythonIntefaceTutorial(object):
     # we use the class variable rather than the copied state variable
     current_pose = self.group.get_current_pose().pose
     return all_close(pose_goal, current_pose, 0.01)
-
 
   def plan_cartesian_path(self, scale=1):
     # Copy class variables to local variables to make the web tutorials more clear.
@@ -361,7 +332,6 @@ class MoveGroupPythonIntefaceTutorial(object):
     self.box_name=box_name
     return self.wait_for_state_update(box_is_known=True, timeout=timeout)
 
-
   def attach_box(self, timeout=4):
     # Copy class variables to local variables to make the web tutorials more clear.
     # In practice, you should use the class variables directly unless you have a good
@@ -429,55 +399,71 @@ class MoveGroupPythonIntefaceTutorial(object):
     # We wait for the planning scene to update.
     return self.wait_for_state_update(box_is_attached=False, box_is_known=False, timeout=timeout)
 
+  ### additional robotiq commands ###
+  # TODO: may need to adjust activate/open/close for tactual object detection
+  def send_gripper_command(self, rPR, rACT=1, rGTO=1, rATR=0, rSP=128, rFR=64):
+    gripper_command = robotiq_output_msg.Robotiq2FGripper_robot_output()
+    gripper_command.rACT = rACT # must remain at 1, will activate upon being switched to one
+    gripper_command.rGTO = rGTO # 1 means it is following the go to routine
+    gripper_command.rATR = rATR # set to 1 for automatic release routine
+    gripper_command.rPR = rPR
+    gripper_command.rSP = rSP # 1/2 max speed
+    gripper_command.rFR = rFR # 1/4 max force
+    self.robotiq_gripper_pub.publish(gripper_command)
+
+  def gripper_status_callback(self, robotiq_input_msg):
+      self.gripper_status = robotiq_input_msg
+
+  def activate_gripper(self):
+      # if gripper.status.rACT == 1: give warining to activate
+      self.send_gripper_command(rPR=0, rACT=1, rGTO=1)
+
+  def open_gripper(self):
+      # if gripper.status.rACT == 0: give warining to activate
+      self.send_gripper_command(rPR=0)
+  
+  def close_gripper(self):
+      # if gripper.status.rACT == 0: give warining to activate
+      self.send_gripper_command(rPR=255)
+
+  def lookup_gripper(self):
+    tfBuffer = tf2_ros.Buffer() ## TODO: initialize a buffer
+    tfListener = tf2_ros.TransformListener(tfBuffer) ## TODO: initialize a transform listener
+
+    try:
+      # TODO: lookup the transform and save it in trans
+      # The rospy.Time(0) is the latest available
+      # The rospy.Duration(10.0) is the amount of time to wait for the transform to be available before throwing an exception
+      trans = tfBuffer.lookup_transform('base', 'wrist_3_link', rospy.Time(0), rospy.Duration(10.0))
+      print(trans)
+    except Exception as e:
+      print(e)
+      print("Retrying ...")
+
+    # grip_pos = [getattr(trans.transform.translation, dim) for dim in ('x', 'y', 'z')]
+    # return np.array(grip_pos)
+    return trans.transform
 
 def main():
   try:
-    print "============ Press `Enter` to begin the tutorial by setting up the moveit_commander (press ctrl-d to exit) ..."
-    raw_input()
-    tutorial = MoveGroupPythonIntefaceTutorial()
+    input("Press `Enter` to begin (press ctrl-d to exit) ...")
+    ur5 = UR5_Movement()
+    # ur5.add_box()
+    ur5.activate_gripper()
 
-    print "============ Press `Enter` to execute a movement using a joint state goal ..."
-    raw_input()
-    tutorial.go_to_joint_state()
+    input("Press 'Enter' to print current gripper orientation ...")
+    cur_pose = ur5.lookup_gripper()
 
-    print "============ Press `Enter` to execute a movement using a pose goal ..."
-    raw_input()
-    tutorial.go_to_pose_goal()
+    input("Press `Enter` to execute a movement using a joint state goal ...")
+    pose_goal = geometry_msgs.msg.Pose()
+    pose_goal.orientation.w = cur_pose.rotation.w
+    pose_goal.position.x = cur_pose.translation.x
+    pose_goal.position.y = cur_pose.translation.y
+    pose_goal.position.z = cur_pose.translation.z
+    ur5.go_to_pose_goal(pose_goal)
 
-    print "============ Press `Enter` to plan and display a Cartesian path ..."
-    raw_input()
-    cartesian_plan, fraction = tutorial.plan_cartesian_path()
+    print("Operation complete")
 
-    print "============ Press `Enter` to display a saved trajectory (this will replay the Cartesian path)  ..."
-    raw_input()
-    tutorial.display_trajectory(cartesian_plan)
-
-    print "============ Press `Enter` to execute a saved path ..."
-    raw_input()
-    tutorial.execute_plan(cartesian_plan)
-
-    print "============ Press `Enter` to add a box to the planning scene ..."
-    raw_input()
-    tutorial.add_box()
-
-    print "============ Press `Enter` to attach a Box to the Panda robot ..."
-    raw_input()
-    tutorial.attach_box()
-
-    print "============ Press `Enter` to plan and execute a path with an attached collision object ..."
-    raw_input()
-    cartesian_plan, fraction = tutorial.plan_cartesian_path(scale=-1)
-    tutorial.execute_plan(cartesian_plan)
-
-    print "============ Press `Enter` to detach the box from the Panda robot ..."
-    raw_input()
-    tutorial.detach_box()
-
-    print "============ Press `Enter` to remove the box from the planning scene ..."
-    raw_input()
-    tutorial.remove_box()
-
-    print "============ Python tutorial demo complete!"
   except rospy.ROSInterruptException:
     return
   except KeyboardInterrupt:

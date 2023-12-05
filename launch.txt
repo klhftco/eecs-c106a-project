@@ -1,0 +1,7 @@
+~/catkin_ws/src/universal_robot/ur5_moveit_config/launch
+
+moveit_rviz.launch
+moveit_planning_execution.launch
+
+to try:
+move_group.launch

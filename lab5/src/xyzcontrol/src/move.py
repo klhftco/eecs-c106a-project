@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import rospy
 from moveit_msgs.srv import GetPositionIK, GetPositionIKRequest, GetPositionIKResponse
 from geometry_msgs.msg import PoseStamped
@@ -22,7 +22,7 @@ def main():
     r = rospy.Rate(5) # suggested lab code was 10Hz
 
     while not rospy.is_shutdown():
-        # input('Press [ Enter ]: ')
+        # input('Press [ Enter ]: ')0
         
         # Construct the request
         request = GetPositionIKRequest()
