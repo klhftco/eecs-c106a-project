@@ -69,11 +69,11 @@ Subscriber function that listens to the `wrench` node and prints the
 x, y, and z forces read by the force sensor. Causes a lot of clutter
 in the terminal.
 """
-# def force(received_message):
-    # print("force_x = " + str(received_message.wrench.force.x))
-    # print("force_y = " + str(received_message.wrench.force.y))
-    # print("force_z = " + str(received_message.wrench.force.z))
-    # print("")
+def force(received_message):
+    print("force_x = " + str(received_message.wrench.force.x))
+    print("force_y = " + str(received_message.wrench.force.y))
+    print("force_z = " + str(received_message.wrench.force.z))
+    print("")
 
 """
 Callback function that runs every 0.5 seconds to check if the velocity
@@ -155,7 +155,7 @@ def main():
     # Start the subscriber nodes for the robot's current position, object detection, and force sensor readings
     rospy.Subscriber('/scaled_pos_joint_traj_controller/state', JointTrajectoryControllerState, subscriber_callback)
     rospy.Subscriber('/Robotiq2FGripperRobotInput', inputMsg.Robotiq2FGripper_robot_input, object_detection)
-    # rospy.Subscriber('/wrench', forceReading, force)
+    rospy.Subscriber('/wrench', forceReading, force)
 
     # Initialize the timer that will call the publisher callback
     timer = rospy.Timer(rospy.Duration(0.25), timer_callback)

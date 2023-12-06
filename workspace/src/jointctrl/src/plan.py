@@ -69,3 +69,18 @@ def main():
     # return plan score (True/False)
     # moveit side, convert plan to trajectory
     return
+
+
+# failure:
+# try to push, but hard to push (sticky? or topples over)
+# try to pick up, slips out of hand
+# try to induce failure by adding weird shapes (wrench, handles, etc.) and lowering grip strength 
+# try taping objects to table (pushing should be relatively hard)
+
+# in the general case: if it's 
+
+
+# Attempt to push: if shear force (in x/y) is greater than some threshold, something my be wrong
+# incorporate vision (AR tag not moving)
+# Attempt to pick: 
+# failure should be based on poor grip --> implying poor decision

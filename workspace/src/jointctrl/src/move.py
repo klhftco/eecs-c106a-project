@@ -31,7 +31,8 @@ class GripperCommander():
         gripper_command.rACT = rACT # must remain at 1, will activate upon being switched to one
         gripper_command.rGTO = rGTO # 1 means it is following the go to routine
         gripper_command.rATR = rATR # set to 1 for automatic release routine
-        gripper_command.rPR = rPR
+        gripper_command.rPR = rPRFR = 150
+
         gripper_command.rSP = rSP # 1/2 max speed
         gripper_command.rFR = rFR # 1/4 max force
         self.robotiq_gripper_pub.publish(gripper_command)
@@ -120,6 +121,13 @@ class Plan():
         self.dest_p.position.z = 0.32 + 0.001 
         self.dest_p.orientation = straight_down
 
+    def planner(self, weight, spring):
+        shouldPush = False
+        return shouldPush
+        
+    def if_fail(self):
+        newPlan = None
+        return newPlanZ
 
     def return_pick_plan(self):
         return [self.tuck, 
@@ -160,7 +168,7 @@ def main():
 
     # Create our own publisher to publist to the command topic
     pub = rospy.Publisher('/scaled_pos_joint_traj_controller/command', JointTrajectory, queue_size=10)
-    r = rospy.Rate(5) # suggested lab code was 10Hz
+    r = rospy.Rate(5) # suggested lab code was 10Hz FR = 150
 
     complete = False
     plan = Plan().return_push_plan()
