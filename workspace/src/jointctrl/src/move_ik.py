@@ -31,7 +31,7 @@ class GripperCommander():
         gripper_command.rACT = rACT # must remain at 1, will activate upon being switched to one
         gripper_command.rGTO = rGTO # 1 means it is following the go to routine
         gripper_command.rATR = rATR # set to 1 for automatic release routine
-        gripper_command.rPR = rPRFR = 150
+        gripper_command.rPR = rPR
 
         gripper_command.rSP = rSP # 1/2 max speed
         gripper_command.rFR = rFR / 2 # 1/4 max force
@@ -46,19 +46,25 @@ class GripperCommander():
 
     def open_gripper(self):
         # if gripper.status.rACT == 0: give warining to activate
-        self.send_gripper_command(rPR=0)
+        self.send_gripper_command(rPR=0, rSP=1, rFR=255)
+        while self.gripper_status.gOBJ != 1:
+            # print("gOBJ: " + str(self.gripper_status.gOBJ))
+            # print("gPO: " + str(self.gripper_status.gPO))
+            # print("")
+            if self.gripper_status.gPO <= 5:
+                break
+        self.send_gripper_command(rPR=self.gripper_status.gPO, rGTO=0, rSP=1, rFR=255)
 
     def close_gripper(self):
         # if gripper.status.rACT == 0: give warining to activate
-        self.send_gripper_command(rPR=255, rSP=255, rFR=255)
-        # replace g.gOBJ and g.gPO with how you read gripper output
+        self.send_gripper_command(rPR=255, rSP=1, rFR=255)
         while self.gripper_status.gOBJ != 2:
-            print("gOBJ: " + str(self.gripper_status.gOBJ))
-            print("gPO: " + str(self.gripper_status.gPO))
-            print("")
+            # print("gOBJ: " + str(self.gripper_status.gOBJ))
+            # print("gPO: " + str(self.gripper_status.gPO))
+            # print("")
             if self.gripper_status.gPO >= 250:
                 break
-        self.send_gripper_command(rPR=self.gripper_status.gPO, rGTO=0, rSP=0, rFR=255)
+        self.send_gripper_command(rPR=self.gripper_status.gPO, rGTO=0, rSP=1, rFR=255)
 
     def lookup_gripper(self):
         tfBuffer = tf2_ros.Buffer() ## TODO: initialize a buffer
