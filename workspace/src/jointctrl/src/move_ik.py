@@ -56,6 +56,8 @@ class GripperCommander():
             print("gOBJ: " + str(g.gOBJ))
             print("gPO: " + str(g.gPO))
             print("")
+            if g.gPO >= 250:
+                break
         self.send_gripper_command(rPR=g.gPO, rGTO=0, rSP=0, rFR=255)
 
     def lookup_gripper(self):
