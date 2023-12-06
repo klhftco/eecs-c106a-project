@@ -34,7 +34,7 @@ class GripperCommander():
         gripper_command.rPR = rPRFR = 150
 
         gripper_command.rSP = rSP # 1/2 max speed
-        gripper_command.rFR = rFR # 1/4 max force
+        gripper_command.rFR = rFR / 2 # 1/4 max force
         self.robotiq_gripper_pub.publish(gripper_command)
 
     def gripper_status_callback(self, robotiq_input_msg):

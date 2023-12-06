@@ -69,4 +69,15 @@ wrench:
     z: 0.20676104881714594
 ---
 
+Planning:
+- Planning logic with failure (most important)
+ - Push, fail (not move)
+ - Pick, fail (slip)
+- Try to induce more failures by making the gripper weaker
+ - Change all forces in move_with_gripper to 50 and try testing (wait for sensing)
+- Threshold testing to determine correct plans 
+- Get AR Tracking working
 
+Sensing:
+- Sample force sensor using averages
+- Get more objects
