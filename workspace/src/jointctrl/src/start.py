@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # The line above tells Linux that this file is a Python script, and that the OS
 # should use the Python interpreter in /usr/bin/env to run it. Don't forget to
 # use "chmod +x [filename]" to make this script executable.
@@ -8,7 +8,7 @@
 import rospy
 
 # Import the String message type from the /msg directory of the std_msgs package.
-from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoints
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 # Define the method which contains the node's main functionality
 def talker():
@@ -30,7 +30,7 @@ def talker():
         command.header.stamp = rospy.Time.now()
         command.joint_names = ["elbow_joint", "shoulder_lift_joint", "shoulder_pan_joint",
                                 "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"]
-        points = JointTrajectoryPoints()
+        points = JointTrajectoryPoint()
         points.positions = [-1.55, -1.6, -1.5, 4.7, 1.6, 3.01]
         command.points = points
         

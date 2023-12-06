@@ -27,3 +27,19 @@ z:0
 Rubik's cube gripper pos: 141, anything bigger than 141 is detectable
 Heavy block gripper pos: 95, anything bigger than 95 is detectable
 
+
+POSES: [x, y, z] position, [x, y, z, w] orientation
+
+TUCK POSE:
+[0.0, 0.3, 0.5]
+[0.0, 1.0, 0.0, 0.0]
+
+PICK PLAN:
+[x, y, +0.1]
+[0.0, 1.0, 0.0, 0.0]
+
+PUSH PLAN:
+[x, y, +0.0], Z lower-bound = 0.31 (0.32)
+[0.0, 1.0, 0.0, 0.0]
+
+

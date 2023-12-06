@@ -11,8 +11,7 @@ from geometry_msgs.msg import WrenchStamped as forceReading
 
 # Global variable for the received current position of the robot
 v = 1
-gOBJ = 3
-gPR = 0
+g = None
 
 # Publishers for the desired trajectory and gripper
 trajectory_pub = rospy.Publisher('/scaled_pos_joint_traj_controller/command', JointTrajectory, queue_size=10)
@@ -46,10 +45,6 @@ i = 0  # Index to show which desired position we're calling
 
 # Commands to control the gripper
 gripper_command = outputMsg.Robotiq2FGripper_robot_output()
-gripper_command.rACT = 1 # Activate
-gripper_command.rGTO = 1 # Start
-gripper_command.rSP = 255 # Speed
-gripper_command.rFR = 150 # Force
 
 """
 Subscriber fuction that listens to the robot's current position and
@@ -66,10 +61,8 @@ Sunscriber function that listens to the gripper's object detection
 sensors and determines whether or not an object has been detected.
 """
 def object_detection(received_message):
-    global gOBJ
-    global gPR
-    gOBJ = received_message.gOBJ
-    gPR = received_message.gPR
+    global g
+    g = received_message
 
 """
 Subscriber function that listens to the `wrench` node and prints the
@@ -89,41 +82,59 @@ desired trajectory and actuates the gripper as necessary.
 """
 def timer_callback(event):
     global command, gripper_command, i, points
-    if v == 0:
+    if v <= 0.1:
         if i == num_positions:  # Has reached last listed desired position
             raise Exception("Reached the final desired position. Need to shut down.")
 
-        if i == 1:  # If we successfully arrived at the starting position
-            gripper_command.rACT = 0
-            gripper_pub.publish(gripper_command)  # Active the gripper
+        if i == 1 or i == 0:  # If we successfully arrived at the starting position
             gripper_command.rACT = 1
             gripper_pub.publish(gripper_command)  # Active the gripper
+            gripper_command.rACT = 0
+            gripper_pub.publish(gripper_command)  # Active the gripper
+            gripper_command.rACT = 1 # Activate
+            gripper_pub.publish(gripper_command)  # Active the gripper
+            gripper_command.rGTO = 1 # Start
+            gripper_command.rSP = 255 # Speed
+            gripper_command.rFR = 255 # Force
+            gripper_pub.publish(gripper_command)  # Active the gripper
 
+        # if gripper_positions[i] == 0 and g.gPR != 0:  # If gripper should be open, command it to open
         if gripper_positions[i] == 0:  # If gripper should be open, command it to open
+            gripper_command.rGTO = 1 # Start
+            gripper_command.rSP = 255 # Speed
+            gripper_command.rFR = 255 # Force
             gripper_command.rPR = 0
             gripper_pub.publish(gripper_command)
         else:
-            if gPR == 0:
-                gripper_position = 50  # Start at position 50 and work our way up
-                while gOBJ != 2:  # While the gripper has not detected an inner grip
-                    gripper_position += 2  # Close the gripper by 2 points
-                    gripper_command.rPR = gripper_position
-                    gripper_pub.publish(gripper_command)
-                    print("gOBJ: " + str(gOBJ))
-                    print("gPR: " + str(gPR))
+            if g.gPR == 0:
+                gripper_command.rGTO = 1 # Start
+                gripper_command.rSP = 255 # Speed
+                gripper_command.rFR = 255 # Force
+                gripper_command.rPR = 50
+                gripper_pub.publish(gripper_command)
+                gripper_command.rSP = 1 # Speed
+                gripper_command.rPR = 255
+                gripper_pub.publish(gripper_command)
+                while g.gOBJ != 2:
+                    print("gOBJ: " + str(g.gOBJ))
+                    print("gPO: " + str(g.gPO))
                     print("")
-                    if gripper_position >= gripper_positions[i]:
-                        break  # Stop at maximum threashold closed value
+                    if g.gPO >= gripper_positions[i]:
+                        break
+                gripper_command.rGTO = 0 # Stop
+                gripper_command.rPR = g.gPO
+                gripper_pub.publish(gripper_command)
 
-                    # This sleep value and the one below it need to
-                    # add up to equal the polling rate for the timer
-                    # in the `main()` function.
-                    rospy.sleep(0.25)  
 
-        rospy.sleep(0.25)
+                # This sleep value and the one below it need to
+                # add up to equal the polling rate for the timer
+                # in the `main()` function.
+                # rospy.sleep(0.25)  
+
+        # rospy.sleep(0.125)
 
         command.header.stamp = rospy.Time.now()
-        point.time_from_start = rospy.Duration((i+1) * 1)  # Change the 1 to 3 or 5 to make the robot move slower
+        point.time_from_start = rospy.Duration((i+1) * 0.5)  # Change the 1 to 3 or 5 to make the robot move slower
         point.positions = positions[i]
         command.points = [point]
 
@@ -147,7 +158,7 @@ def main():
     # rospy.Subscriber('/wrench', forceReading, force)
 
     # Initialize the timer that will call the publisher callback
-    timer = rospy.Timer(rospy.Duration(0.5), timer_callback)
+    timer = rospy.Timer(rospy.Duration(0.25), timer_callback)
     rospy.spin()
     timer.shutdown()
           
