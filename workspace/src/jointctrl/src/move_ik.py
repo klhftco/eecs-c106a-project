@@ -34,7 +34,7 @@ class GripperCommander():
         gripper_command.rPR = rPR
 
         gripper_command.rSP = rSP # 1/2 max speed
-        gripper_command.rFR = rFR / 2 # 1/4 max force
+        gripper_command.rFR = rFR / 2 # 1/8 max force
         self.robotiq_gripper_pub.publish(gripper_command)
 
     def gripper_status_callback(self, robotiq_input_msg):
@@ -47,23 +47,21 @@ class GripperCommander():
     def open_gripper(self):
         # if gripper.status.rACT == 0: give warining to activate
         self.send_gripper_command(rPR=0, rSP=1, rFR=255)
-        while self.gripper_status.gOBJ != 1:
+        while self.gripper_status.gOBJ != 1 and self.gripper_status.gPO > 5:
             # print("gOBJ: " + str(self.gripper_status.gOBJ))
             # print("gPO: " + str(self.gripper_status.gPO))
             # print("")
-            if self.gripper_status.gPO <= 5:
-                break
+            pass
         self.send_gripper_command(rPR=self.gripper_status.gPO, rGTO=0, rSP=1, rFR=255)
 
     def close_gripper(self):
         # if gripper.status.rACT == 0: give warining to activate
         self.send_gripper_command(rPR=255, rSP=1, rFR=255)
-        while self.gripper_status.gOBJ != 2:
+        while self.gripper_status.gOBJ != 2 and self.gripper_status.gPO < 250:
             # print("gOBJ: " + str(self.gripper_status.gOBJ))
             # print("gPO: " + str(self.gripper_status.gPO))
             # print("")
-            if self.gripper_status.gPO >= 250:
-                break
+            pass
         self.send_gripper_command(rPR=self.gripper_status.gPO, rGTO=0, rSP=1, rFR=255)
 
     def lookup_gripper(self):
