@@ -13,7 +13,7 @@ from math import pi
 from std_msgs.msg import String
 from moveit_commander.conversions import pose_to_list
 
-# additional imports 
+# additional imports
 from robotiq_2f_gripper_control.msg import _Robotiq2FGripper_robot_output as robotiq_output_msg
 from robotiq_2f_gripper_control.msg import _Robotiq2FGripper_robot_input as robotiq_input_msg
 import tf2_ros
@@ -118,39 +118,50 @@ class Plan():
         self.dest_p = Pose()
         self.dest_p.position.x = -0.21
         self.dest_p.position.y = 0.69
-        self.dest_p.position.z = 0.32 + 0.001 
+        self.dest_p.position.z = 0.32 + 0.001
         self.dest_p.orientation = straight_down
 
     def planner(self, weight, spring):
         shouldPush = False
         return shouldPush
-        
+
     def if_fail(self):
         newPlan = None
         return newPlanZ
 
     def return_pick_plan(self):
-        return [self.tuck, 
-                self.pick, 
-                self.grab, 
+        return [self.tuck,
+                self.pick,
+                self.grab,
                 1,
-                self.pick, 
-                self.drop, 
+                self.pick,
+                self.drop,
                 self.dest,
                 0,
-                self.drop, 
+                self.drop,
                 self.tuck]
 
     def return_push_plan(self):
-        return [self.tuck, 
-                self.pick, 
+        return [self.tuck,
+                self.pick,
                 self.grab,
                 1,
-                self.pick, 
-                self.grab_p, 
+                self.pick,
+                self.grab_p,
                 self.dest_p,
-                0, 
-                self.drop, 
+                0,
+                self.drop,
+                self.tuck]
+
+    def return_test_plan(self);
+        return [self.tuck,
+                self.pick,
+                self.grab,
+                1,
+                self.pick,
+                self.grab,
+                0,
+                self.pick,
                 self.tuck]
 
 def main():
@@ -171,10 +182,10 @@ def main():
     r = rospy.Rate(5) # suggested lab code was 10Hz FR = 150
 
     complete = False
-    plan = Plan().return_push_plan()
+    plan = Plan().return_test_plan()
     move_index = 0
 
-    input("Press enter to begin")    
+    input("Press enter to begin")
     for move in plan:
         if rospy.is_shutdown():
             break;
@@ -203,15 +214,15 @@ def main():
                 # Plan IK
                 plan = group.plan()[1].joint_trajectory
                 user_input = input("Enter 'z' if the trajectory looks safe on RVIZ")
-                
+
                 # Execute IK if safe
                 if user_input == 'z':
                     pub.publish(plan)
                     print("Published to the topic!")
-                
+
                 # Use our rate object to sleep until it is time to publish again
                 r.sleep()
-                
+
             except rospy.ServiceException as e:
                 print("Service call failed: %s"%e)
 
@@ -224,7 +235,7 @@ if __name__ == '__main__':
 #     while not rospy.is_shutdown() and not complete:
 
 #         input('Press [ Enter ] to begin planning: ')
-        
+
 #         # Construct the request
 #         request = GetPositionIKRequest()
 #         request.ik_request.group_name = "manipulator"
@@ -240,16 +251,16 @@ if __name__ == '__main__':
 #         # Set the desired orientation for the end effector HERE
 #         request.ik_request.pose_stamped.pose.position.x = 0.0
 #         request.ik_request.pose_stamped.pose.position.y = 0.3
-#         request.ik_request.pose_stamped.pose.position.z = 0.5  # Keep the z-value greater than 0.35 at all times        
+#         request.ik_request.pose_stamped.pose.position.z = 0.5  # Keep the z-value greater than 0.35 at all times
 #         request.ik_request.pose_stamped.pose.orientation.x = 0.0
 #         request.ik_request.pose_stamped.pose.orientation.y = 1.0
 #         request.ik_request.pose_stamped.pose.orientation.z = 0.0
 #         request.ik_request.pose_stamped.pose.orientation.w = 0.0
-        
+
 #         try:
 #             # Send the request to the service
 #             response = compute_ik(request)
-            
+
 #             # Print the response HERE
 #             group = MoveGroupCommander("manipulator")
 
@@ -267,15 +278,15 @@ if __name__ == '__main__':
 #             # print(type(plan[2]))
 #             print(plan)
 #             user_input = input("Enter 'y' if the trajectory looks safe on RVIZ")
-            
+
 #             # Execute IK if safe
 #             if user_input == 'y':
 #                 # group.execute(plan)
 #                 pub.publish(plan)
 #                 print("Published to the topic!")
-            
+
 #             # Use our rate object to sleep until it is time to publish again
 #             r.sleep()
-            
+
 #         except rospy.ServiceException as e:
 #             print("Service call failed: %s"%e)
