@@ -50,7 +50,13 @@ class GripperCommander():
 
     def close_gripper(self):
         # if gripper.status.rACT == 0: give warining to activate
-        self.send_gripper_command(rPR=255)
+        self.send_gripper_command(rPR=255, rSP=255, rFR=255)
+        # replace g.gOBJ and g.gPO with how you read gripper output
+        while g.gOBJ != 2:
+            print("gOBJ: " + str(g.gOBJ))
+            print("gPO: " + str(g.gPO))
+            print("")
+        self.send_gripper_command(rPR=g.gPO, rGTO=0, rSP=0, rFR=255)
 
     def lookup_gripper(self):
         tfBuffer = tf2_ros.Buffer() ## TODO: initialize a buffer
