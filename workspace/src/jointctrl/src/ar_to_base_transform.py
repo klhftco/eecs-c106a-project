@@ -30,3 +30,5 @@ if __name__ == '__main__':
 
         br.sendTransform(trans)
         rate.sleep()
+
+    rospy.spin()

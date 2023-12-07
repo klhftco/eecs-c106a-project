@@ -28,21 +28,20 @@ class GripperCommander():
            "Robotiq2FGripperRobotOutput", robotiq_output_msg.Robotiq2FGripper_robot_output, queue_size=10)
         self.robotiq_gripper_sub = rospy.Subscriber(
             "Robotiq2FGripperRobotInput", robotiq_input_msg.Robotiq2FGripper_robot_input, self.gripper_status_callback)
-        self.wrench_sub = rospy.Subscriber('/wrench', forceReading, self.wrench_callback)
+        self.wrench_sub = rospy.Subscriber('/wrench_averaged', forceReading, self.wrench_callback)
         # self.wrench_status = forceReading.wrench_stamped()
         self.gripper_status = None
 
-    def send_gripper_command(self, rPR, rACT=1, rGTO=1, rATR=0, rSP=128, rFR=64):
+    def send_gripper_command(self, rPR, rACT=1, rGTO=1, rATR=0, rSP=128, rFR=32):
         gripper_command = robotiq_output_msg.Robotiq2FGripper_robot_output()
         gripper_command.rACT = rACT # must remain at 1, will activate upon being switched to one
         gripper_command.rGTO = rGTO # 1 means it is following the go to routine
         gripper_command.rATR = rATR # set to 1 for automatic release routine
         gripper_command.rPR = rPR
-
         gripper_command.rSP = rSP # 1/2 max speed
         gripper_command.rFR = rFR # 1/4 max force
         self.robotiq_gripper_pub.publish(gripper_command)
-
+   
     def gripper_status_callback(self, robotiq_input_msg):
         self.gripper_status = robotiq_input_msg
 
@@ -52,26 +51,31 @@ class GripperCommander():
         # print(self.wrench_status.wrench.force.z)
 
     def activate_gripper(self):
-        # if gripper.status.rACT == 1: give warining to activate
-        self.send_gripper_command(rPR=0, rACT=1, rGTO=1)
+        #if gripper.status.rACT == 1: give warining to activate
+        self.send_gripper_command(rPR=0, rACT=1, rGTO=0, rATR=0, rSP=0, rFR=0)
+        rospy.sleep(1)
+        self.send_gripper_command(rPR=0, rACT=0, rGTO=0, rATR=0, rSP=0, rFR=0)
+        rospy.sleep(1)
+        self.send_gripper_command(rPR=0, rACT=1, rGTO=0, rATR=0, rSP=128, rFR=48)
+        rospy.sleep(1)
 
     def open_gripper(self):
         # if gripper.status.rACT == 0: give warining to activate
-        self.send_gripper_command(rPR=0, rSP=1, rFR=255)
+        self.send_gripper_command(rPR=0, rSP=16, rFR=255)
         while self.gripper_status.gOBJ != 1 and self.gripper_status.gPO > 5:
             # print("gOBJ: " + str(self.gripper_status.gOBJ))
             # print("gPO: " + str(self.gripper_status.gPO))
             # print("")
             pass
-        self.send_gripper_command(rPR=self.gripper_status.gPO, rGTO=0, rSP=1, rFR=255)
+        self.send_gripper_command(rPR=self.gripper_status.gPO, rGTO=0, rSP=16, rFR=255)
 
     def close_gripper(self):
         # if gripper.status.rACT == 0: give warining to activate
         self.send_gripper_command(rPR=255, rSP=1, rFR=255)
         while self.gripper_status.gOBJ != 2 and self.gripper_status.gPO < 250:
-            # print("gOBJ: " + str(self.gripper_status.gOBJ))
-            # print("gPO: " + str(self.gripper_status.gPO))
-            # print("")
+            print("gOBJ: " + str(self.gripper_status.gOBJ))
+            print("gPO: " + str(self.gripper_status.gPO))
+            print("")
             pass
         self.send_gripper_command(rPR=self.gripper_status.gPO, rGTO=0, rSP=1, rFR=255)
 
@@ -150,7 +154,7 @@ class Plan():
 
     def if_fail(self):
         newPlan = None
-        return newPlanZ
+        return newPlan
 
     def return_pick_plan(self):
         return [self.tuck,
@@ -232,7 +236,6 @@ def main():
 
     gripper = GripperCommander()
     gripper.activate_gripper()
-    gripper.open_gripper()
 
     # Create our own publisher to publist to the command topic
     pub = rospy.Publisher('/scaled_pos_joint_traj_controller/command', JointTrajectory, queue_size=10)
@@ -245,12 +248,13 @@ def main():
     curr_force = 0  # Variable to hold the force reading when arm is in "pick" position
 
     input("Press enter to begin")
+    gripper.open_gripper()
+
     for move in plan:
         if rospy.is_shutdown():
             break;
 
-        input("Press enter for next move")
-        print(move)
+        # print(move)
 
         # if move is a number, operate gripper appropriately
         if move == 0:
@@ -262,6 +266,8 @@ def main():
         elif move == 3:
             print("Delta z-force:", wrench_status.wrench.force.z - curr_force)
         else: # otherwise, construct IK request and compute path between points
+            input("Press enter for next move")
+            
             # Construct the request
             request = GetPositionIKRequest()
             request.ik_request.group_name = "manipulator"
@@ -276,13 +282,13 @@ def main():
 
                 # Plan IK
                 plan = group.plan()[1].joint_trajectory
-                user_input = input("Enter 'z' if the trajectory looks safe on RVIZ")
+                print(plan)
+                # user_input = input("Enter 'z' if the trajectory looks safe on RVIZ")
 
                 # Execute IK if safe
-                if user_input == 'z':
-                    pub.publish(plan)
-                    # print(plan)
-                    print("Published to the topic!")
+                # if user_input == 'z':
+                pub.publish(plan)
+                print("Published to the topic!")
 
                 # Use our rate object to sleep until it is time to publish again
                 r.sleep()
