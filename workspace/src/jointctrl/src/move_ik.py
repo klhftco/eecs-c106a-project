@@ -2,6 +2,7 @@
 import rospy
 from moveit_msgs.srv import GetPositionIK, GetPositionIKRequest, GetPositionIKResponse
 from geometry_msgs.msg import PoseStamped, Pose, Quaternion
+from geometry_msgs.msg import WrenchStamped as forceReading
 from moveit_commander import MoveGroupCommander
 import numpy as np
 from numpy import linalg
@@ -18,6 +19,8 @@ from robotiq_2f_gripper_control.msg import _Robotiq2FGripper_robot_output as rob
 from robotiq_2f_gripper_control.msg import _Robotiq2FGripper_robot_input as robotiq_input_msg
 import tf2_ros
 
+wrench_status = None
+
 # TODO: may need to adjust activate/open/close for tactual object detection
 class GripperCommander():
     def __init__(self):
@@ -25,6 +28,9 @@ class GripperCommander():
            "Robotiq2FGripperRobotOutput", robotiq_output_msg.Robotiq2FGripper_robot_output, queue_size=10)
         self.robotiq_gripper_sub = rospy.Subscriber(
             "Robotiq2FGripperRobotInput", robotiq_input_msg.Robotiq2FGripper_robot_input, self.gripper_status_callback)
+        self.wrench_sub = rospy.Subscriber('/wrench', forceReading, self.wrench_callback)
+        # self.wrench_status = forceReading.wrench_stamped()
+        self.gripper_status = robotiq_input_msg.Robotiq2FGripper_robot_input()
 
     def send_gripper_command(self, rPR, rACT=1, rGTO=1, rATR=0, rSP=128, rFR=64):
         gripper_command = robotiq_output_msg.Robotiq2FGripper_robot_output()
@@ -34,11 +40,16 @@ class GripperCommander():
         gripper_command.rPR = rPR
 
         gripper_command.rSP = rSP # 1/2 max speed
-        gripper_command.rFR = rFR / 2 # 1/8 max force
+        gripper_command.rFR = rFR # 1/4 max force
         self.robotiq_gripper_pub.publish(gripper_command)
 
     def gripper_status_callback(self, robotiq_input_msg):
         self.gripper_status = robotiq_input_msg
+
+    def wrench_callback(self, wrench_msg):
+        global wrench_status
+        wrench_status = wrench_msg
+        # print(self.wrench_status.wrench.force.z)
 
     def activate_gripper(self):
         # if gripper.status.rACT == 1: give warining to activate
@@ -165,12 +176,46 @@ class Plan():
                 self.drop,
                 self.tuck]
 
-    def return_test_plan(self);
+    def return_test_plan(self):
         return [self.tuck,
                 self.pick,
+                2,
                 self.grab,
                 1,
                 self.pick,
+                3,
+                self.grab,
+                0,
+                self.pick,
+                2,
+                self.grab,
+                1,
+                self.pick,
+                3,
+                self.grab,
+                0,
+                self.pick,
+                2,
+                self.grab,
+                1,
+                self.pick,
+                3,
+                self.grab,
+                0,
+                self.pick,
+                2,
+                self.grab,
+                1,
+                self.pick,
+                3,
+                self.grab,
+                0,
+                self.pick,
+                2,
+                self.grab,
+                1,
+                self.pick,
+                3,
                 self.grab,
                 0,
                 self.pick,
@@ -197,6 +242,8 @@ def main():
     plan = Plan().return_test_plan()
     move_index = 0
 
+    curr_force = 0  # Variable to hold the force reading when arm is in "pick" position
+
     input("Press enter to begin")
     for move in plan:
         if rospy.is_shutdown():
@@ -210,6 +257,10 @@ def main():
             gripper.open_gripper()
         elif move == 1:
             gripper.close_gripper()
+        elif move == 2:
+            curr_force = wrench_status.wrench.force.z
+        elif move == 3:
+            print("Delta z-force:", wrench_status.wrench.force.z - curr_force)
         else: # otherwise, construct IK request and compute path between points
             # Construct the request
             request = GetPositionIKRequest()
@@ -230,6 +281,7 @@ def main():
                 # Execute IK if safe
                 if user_input == 'z':
                     pub.publish(plan)
+                    # print(plan)
                     print("Published to the topic!")
 
                 # Use our rate object to sleep until it is time to publish again
