@@ -18,6 +18,7 @@ from moveit_commander.conversions import pose_to_list
 from robotiq_2f_gripper_control.msg import _Robotiq2FGripper_robot_output as robotiq_output_msg
 from robotiq_2f_gripper_control.msg import _Robotiq2FGripper_robot_input as robotiq_input_msg
 import tf2_ros
+import tf.transformations
 
 wrench_status = None
 
@@ -96,15 +97,16 @@ class GripperCommander():
         # grip_pos = [getattr(trans.transform.translation, dim) for dim in ('x', 'y', 'z')]
         # return np.array(grip_pos)
         return trans.transform
+        
 
 class Plan():
     # tuck -> grab -> down -> up -> dest -> down -> release -> up -> tuck
     def __init__(self):
         straight_down = Quaternion()
         straight_down.x = 0.0
-        straight_down.y = 1.0
-        straight_down.z = 0.0
-        straight_down.w = 0.0
+        straight_down.y = 0.0
+        straight_down.z = 1.0
+        straight_down.w = np.pi
 
         self.tuck = Pose()
         self.tuck.position.x = 0.0
@@ -156,7 +158,38 @@ class Plan():
         newPlan = None
         return newPlan
 
-    def return_pick_plan(self):
+    def lookup_tag(tag_number):
+        # initialize a tf buffer and listener
+        tfBuffer = tf2_ros.Buffer()
+        tfListener = tf2_ros.TransformListener(tfBuffer)
+
+        try:
+            # lookup the transform from ar_marker to global frame
+            # TODO: rename frames accordingly
+            trans = tfBuffer.lookup_transform('base_link', f'ar_marker_{tag_number}', rospy.Time(0), rospy.Duration(10.0))
+        except Exception as e:
+            print(e)
+            print("Retrying ...")
+
+        quat = [getattr(trans.transform.rotation, dim) for dim in ('x', 'y', 'z', 'w')]
+        euler = [-np.pi, 0, tf.transformations.euler_from_quaternion(quat)[2]]
+        quat = tf.transformations.quaternion_from_euler(euler)
+        
+        rot = Quaternion()
+        rot.x = quat[0]
+        rot.y = quat[1]
+        rot.z = quat[2]
+        rot.w = quat[3]
+        trans.transform.rotation = rot
+
+        return trans.transform
+
+    def return_pick_plan(self, obj_trans, dest_trans):
+        # obj = Pose()
+        # obj.position.x = obj_trans.
+        # obj.position.x = 
+        # obj.position.x = 
+        # obj.position.x = 
         return [self.tuck,
                 self.pick,
                 self.grab,
@@ -242,7 +275,9 @@ def main():
     r = rospy.Rate(5) # suggested lab code was 10Hz FR = 150
 
     complete = False
-    plan = Plan().return_test_plan()
+    plan = Plan()
+    plan.lookup_tag()
+    # .return_test_plan()
     move_index = 0
 
     curr_force = 0  # Variable to hold the force reading when arm is in "pick" position
@@ -283,12 +318,12 @@ def main():
                 # Plan IK
                 plan = group.plan()[1].joint_trajectory
                 print(plan)
-                # user_input = input("Enter 'z' if the trajectory looks safe on RVIZ")
+                user_input = input("Enter 'z' if the trajectory looks safe on RVIZ")
 
                 # Execute IK if safe
-                # if user_input == 'z':
-                pub.publish(plan)
-                print("Published to the topic!")
+                if user_input == 'z':
+                    pub.publish(plan)
+                    print("Published to the topic!")
 
                 # Use our rate object to sleep until it is time to publish again
                 r.sleep()

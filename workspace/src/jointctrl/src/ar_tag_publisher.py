@@ -5,17 +5,11 @@ import numpy as np
 
 class ForceSubscriber:
     def __init__(self):
-        self.force_sum = np.array([0.0, 0.0, 0.0])  # Initialize the sum of forces
-        self.message_count = 0
-        self.average_count = 64
-        self.average_force = np.array([0.0, 0.0, 0.0])
-
         # Initialize ROS node and subscriber
-        rospy.init_node('force_subscriber', anonymous=True)
-        rospy.Subscriber('/wrench', WrenchStamped, self.force_callback)  # Replace 'force_topic' with your actual topic
+        rospy.init_node('ar_to_base', anonymous=True)
 
-        # Initialize ROS publisher for the average force
-        self.average_force_publisher = rospy.Publisher('/wrench_averaged', WrenchStamped, queue_size=10)  # Replace 'average_force_topic' with your desired topic
+        # Initialize ROS publisher for the transform
+        self.average_force_publisher = rospy.Publisher('/ar_to_base', WrenchStamped, queue_size=10)  # Replace 'average_force_topic' with your desired topic
 
     def force_callback(self, data):
         # Callback function to process incoming force messages
