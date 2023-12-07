@@ -30,7 +30,7 @@ class GripperCommander():
             "Robotiq2FGripperRobotInput", robotiq_input_msg.Robotiq2FGripper_robot_input, self.gripper_status_callback)
         self.wrench_sub = rospy.Subscriber('/wrench', forceReading, self.wrench_callback)
         # self.wrench_status = forceReading.wrench_stamped()
-        self.gripper_status = robotiq_input_msg.Robotiq2FGripper_robot_input()
+        self.gripper_status = None
 
     def send_gripper_command(self, rPR, rACT=1, rGTO=1, rATR=0, rSP=128, rFR=64):
         gripper_command = robotiq_output_msg.Robotiq2FGripper_robot_output()
