@@ -62,7 +62,7 @@ class GripperCommander():
 
     def open_gripper(self):
         # if gripper.status.rACT == 0: give warining to activate
-        self.send_gripper_command(rPR=0, rSP=16, rFR=255)
+        self.send_gripper_command(rPR=0, rSP=255, rFR=255)
         while self.gripper_status.gOBJ != 1 and self.gripper_status.gPO > 5:
             # print("gOBJ: " + str(self.gripper_status.gOBJ))
             # print("gPO: " + str(self.gripper_status.gPO))
@@ -74,11 +74,15 @@ class GripperCommander():
         # if gripper.status.rACT == 0: give warining to activate
         self.send_gripper_command(rPR=255, rSP=1, rFR=255)
         while self.gripper_status.gOBJ != 2 and self.gripper_status.gPO < 250:
-            print("gOBJ: " + str(self.gripper_status.gOBJ))
-            print("gPO: " + str(self.gripper_status.gPO))
-            print("")
+            # print("gOBJ: " + str(self.gripper_status.gOBJ))
+            # print("gPO: " + str(self.gripper_status.gPO))
+            # print("")
             pass
         self.send_gripper_command(rPR=self.gripper_status.gPO, rGTO=0, rSP=1, rFR=255)
+
+    def close_num(self, position):
+        # if gripper.status.rACT == 0: give warining to activate
+        self.send_gripper_command(rPR=position, rGTO=1, rSP=255, rFR=255)
 
     def lookup_gripper(self):
         tfBuffer = tf2_ros.Buffer() ## TODO: initialize a buffer
@@ -122,6 +126,12 @@ class Plan():
         self.grab.position.y = 0.69
         self.grab.position.z = 0.32
         self.grab.orientation = straight_down
+
+        self.probe = Pose()
+        self.probe.position.x = 0.25
+        self.probe.position.y = 0.69
+        self.probe.position.z = 0.40
+        self.probe.orientation = straight_down
 
         self.grab_p = Pose()
         self.grab_p.position.x = 0.25
@@ -237,6 +247,15 @@ class Plan():
                 0,
                 self.drop,
                 self.tuck]
+    
+    def return_probe_plan(self):
+        return [self.tuck,
+                self.pick,
+                255,
+                self.probe,
+                self.pick,
+                0,
+                self.tuck]
 
     def return_test_plan(self):
         return [self.tuck,
@@ -312,7 +331,7 @@ def main():
 
     for move in plan:
         if rospy.is_shutdown():
-            break;
+            break
 
         # print(move)
 
@@ -325,6 +344,8 @@ def main():
             curr_force = wrench_status.wrench.force.z
         elif move == 3:
             print("Delta z-force:", wrench_status.wrench.force.z - curr_force)
+        elif move == 255:
+            gripper.close_num(move)
         else: # otherwise, construct IK request and compute path between points
             input("Press enter for next move")
 
