@@ -155,7 +155,7 @@ def main():
     # Start the subscriber nodes for the robot's current position, object detection, and force sensor readings
     rospy.Subscriber('/scaled_pos_joint_traj_controller/state', JointTrajectoryControllerState, subscriber_callback)
     rospy.Subscriber('/Robotiq2FGripperRobotInput', inputMsg.Robotiq2FGripper_robot_input, object_detection)
-    # rospy.Subscriber('/wrench', forceReading, force)
+    rospy.Subscriber('/wrench', forceReading, force)
 
     # Initialize the timer that will call the publisher callback
     timer = rospy.Timer(rospy.Duration(0.25), timer_callback)

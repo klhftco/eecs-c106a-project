@@ -60,7 +60,7 @@ class GripperCommander():
         self.send_gripper_command(rPR=0, rSP=1, rFR=255)
         while self.gripper_status.gOBJ != 1 and self.gripper_status.gPO > 5:
             # print("gOBJ: " + str(self.gripper_status.gOBJ))
-            # print("gPO:  " + str(self.gripper_status.gPO))
+            # print("gPO: " + str(self.gripper_status.gPO))
             # print("")
             pass
         self.send_gripper_command(rPR=self.gripper_status.gPO, rGTO=0, rSP=1, rFR=255)
