@@ -19,6 +19,7 @@ from robotiq_2f_gripper_control.msg import _Robotiq2FGripper_robot_output as rob
 from robotiq_2f_gripper_control.msg import _Robotiq2FGripper_robot_input as robotiq_input_msg
 import tf2_ros
 import tf.transformations
+from control_msgs.msg import JointTrajectoryControllerState
 
 class GripperCommander():
     def __init__(self):
@@ -60,10 +61,10 @@ class GripperCommander():
         self.send_gripper_command(rPR=0, rSP=255, rFR=255)
 
     def close_gripper(self):
-        self.send_gripper_command(rPR=142, rSP=1, rFR=255)
+        self.send_gripper_command(rPR=self.min_grip, rSP=1, rFR=255)
         while self.gripper_status.gOBJ != 2 and self.gripper_status.gPO <= 140:
             pass
-        self.send_gripper_command(rPR=self.gripper_status.gPO, rGTO=0, rSP=64, rFR=255)
+        self.send_gripper_command(rPR=self.gripper_status.gPO, rGTO=0, rSP=128, rFR=255)
 
     def close_num(self, position):
         # if gripper.status.rACT == 0: give warining to activate
@@ -112,8 +113,8 @@ class Plan():
         obj = self.lookup_tag(obj_ar)
         obj_pose = Pose()
         obj_pose.position.x = obj.translation.x
-        obj_pose.position.y = obj.translation.y
-        obj_pose.position.z = obj.translation.z
+        obj_pose.position.y = obj.translation.y - 0.00
+        obj_pose.position.z = obj.translation.z - 0.06 + .07
         obj_pose.orientation = obj.rotation
         self.grab, self.pick = self.get_pick_pose(obj_pose)
         self.probe, self.probe_down = self.get_probe_pose(obj_pose)
@@ -126,6 +127,7 @@ class Plan():
         dest_pose.position.z = dest.translation.z
         dest_pose.orientation = dest.rotation
         self.dest, self.drop = self.get_pick_pose(dest_pose)
+        self.dest.position.z = self.grab.position.z
 
     def get_move_plan(self, weight=10.0, spring=10.0, friction=0.0):
         '''
@@ -154,7 +156,7 @@ class Plan():
 
         planning_score = c_weight * np.abs(weight) + c_spring * max(0, spring) + c_friction * friction
         if (planning_score / 2) > 1:
-            print(planning_score, ": Push")
+            print(planning_score / 2, ": Push")
             return self.return_push_plan()
         else: 
             print(planning_score, ": Pick")
@@ -208,20 +210,21 @@ class Plan():
         ret1 = Pose()
         ret1.position.x = pose.position.x
         ret1.position.y = pose.position.y
-        ret1.position.z = pose.position.z + 0.296 + 0.005
+        ret1.position.z = max(pose.position.z + 0.296, self.LOWER_Z_LIMIT + 0.01) + 0.005
         ret1.orientation = pose.orientation
 
         ret2 = Pose()
         ret2.position.x = pose.position.x
         ret2.position.y = pose.position.y
-        ret2.position.z = pose.position.z + 0.296 - 0.005
+        ret2.position.z = ret1.position.z - 0.01
         ret2.orientation = pose.orientation
 
         return ret1, ret2 # (probe_start, probe_end)
 
     def update_pick_pose(self, pose):
-        pose.position.z -= 0.296
+        pose.position.z = pose.position.z - 0.296
         self.grab, self.pick = self.get_pick_pose(pose)
+        self.dest.position.z = self.grab.position.z
 
     def return_pick_plan(self):
         return [# already in grab
@@ -240,6 +243,11 @@ class Plan():
                 0,
                 self.drop,
                 self.tuck]
+    
+    def return_open_plan(self):
+        return [self.pick,
+                0,
+                self.grab]
 
     def return_probe_plan(self):
         return [self.probe,
@@ -351,23 +359,38 @@ class ur5_actuator():
         self.move_group = MoveGroupCommander("manipulator")
         self.planner = Plan()
         self.compute_ik = None
+        self.is_steady = True
+        self.steady_sub = rospy.Subscriber("/scaled_pos_joint_traj_controller/state", JointTrajectoryControllerState, self.is_steady_callback)
+
+    def is_steady_callback(self, control_msg):
+        self.is_steady = np.allclose(control_msg.actual.velocities, 
+            np.zeros(len(control_msg.actual.velocities)), rtol=1e-3)
+
+    def wait_for_steady(self):
+        rospy.sleep(0.5)
+        while(not self.is_steady):
+                pass
 
     def get_ik(self, pose, safety=True):
-        request = GetPositionIKRequest()
-        request.ik_request.group_name = "manipulator"
-        request.ik_request.ik_link_name = "tool0"
-        request.ik_request.pose_stamped.header.frame_id = "base_link"
-        request.ik_request.pose_stamped.pose = pose
         try:
-            response = self.compute_ik(request)
-            self.move_group.set_pose_target(request.ik_request.pose_stamped)
-
-            trajectory = self.move_group.plan()[1].joint_trajectory
-            # print(trajectory)
             user_input = ''
-            while (user_input != 'z' and safety):
-                user_input = input("Enter 'z' if the trajectory looks safe on RVIZ")
+            while (user_input != 'z'):
+                request = GetPositionIKRequest()
+                request.ik_request.group_name = "manipulator"
+                request.ik_request.ik_link_name = "tool0"
+                request.ik_request.pose_stamped.header.frame_id = "base_link"
+                request.ik_request.pose_stamped.pose = pose
 
+                response = self.compute_ik(request)
+                self.move_group.set_pose_target(request.ik_request.pose_stamped)
+
+                trajectory = self.move_group.plan()[1].joint_trajectory
+                # print(trajectory)
+                if (not safety):
+                    user_input = 'z'
+                else:
+                    user_input = input("Enter 'z' if the trajectory looks safe on RVIZ")
+                
             # Execute IK if safe
             if user_input == 'z' or not safety:
                 self.pub.publish(trajectory)
@@ -407,6 +430,7 @@ class ur5_actuator():
         print("Begin probe")
         for i, move in enumerate(self.planner.return_probe_plan()):
             print(move)
+            self.wait_for_steady()
             if rospy.is_shutdown():
                 break
             elif self.gripper.wrench_status.wrench.force.z < 0:
@@ -415,74 +439,76 @@ class ur5_actuator():
                 break;
             elif move == 4:  # Get probe measurement
                 self.get_ik(self.planner.probe_down)
-                rospy.sleep(2)
+                self.wait_for_steady()
                 deformability = self.gripper.wrench_status.wrench.force.z
-                while deformability > 0:
-                    # input("Press enter to probe down more")
-                    self.planner.probe_down.position.z -= 0.005
-                    self.get_ik(self.planner.probe_down, safety=False)
-                    rospy.sleep(2)
-                    deformability = self.gripper.wrench_status.wrench.force.z    
+                # while deformability > 0:
+                #     self.planner.probe_down.position.z -= 0.005
+                #     self.get_ik(self.planner.probe_down, safety=False)
+                #     self.wait_for_steady()
+                #     deformability = self.gripper.wrench_status.wrench.force.z    
+                self.gripper.open_gripper()
                 print("Deformability constant:", deformability)
                 self.planner.update_pick_pose(self.planner.probe_down)
             elif (move == 255) or (move == 120):
-                rospy.sleep(5)
                 self.gripper.close_num(move)
             else:
                 input("Press enter for next move")
                 self.get_ik(move)
-                
-        # Weigh Routine
-        print("Begin weigh")
-        for i, move in enumerate(self.planner.return_weigh_plan()):
-            safety = False
-            if i < 4:
-                safety = True
-            print(move)
-            if rospy.is_shutdown():
-                break
 
-            elif move == 0:
-                rospy.sleep(3)
-                self.gripper.open_gripper()
-            elif move == 1:
-                rospy.sleep(3)
-                self.gripper.close_gripper()
-            elif move == 2:
-                rospy.sleep(1)
-                curr_force = self.gripper.wrench_status.wrench.force.z
-            elif move == 3:
-                rospy.sleep(0.5)
-                weight_samples += self.gripper.wrench_status.wrench.force.z - curr_force
-            elif move == 5:
-                weight_samples = 0
-            elif move == 6:
-                weight = weight_samples / 5
-                print("Average delta z-force:", weight)
-            else:
-                if safety:
+        if deformability < -35:
+            # Weigh Routine
+            print("Begin weigh")
+            for i, move in enumerate(self.planner.return_weigh_plan()):
+                self.wait_for_steady()
+                safety = False
+                if i < 4:
+                    safety = True
+                print(move)
+                if rospy.is_shutdown():
+                    break
+
+                elif move == 0:
+                    self.gripper.open_gripper()
+                elif move == 1:
+                    self.gripper.close_gripper()
+                elif move == 2:
+                    curr_force = self.gripper.wrench_status.wrench.force.z
+                elif move == 3:
+                    weight_samples += self.gripper.wrench_status.wrench.force.z - curr_force
+                elif move == 5:
+                    weight_samples = 0
+                elif move == 6:
+                    weight = weight_samples / 5
+                    print("Average delta z-force:", weight)
+                else:
+                    if safety:
+                        input("Press enter for next move")
+                    self.get_ik(move, safety=safety)
+        else:
+            for i, move in enumerate(self.planner.return_open_plan()):
+                self.wait_for_steady()
+                
+                print(move)
+                if rospy.is_shutdown():
+                    break
+                elif move == 0:
+                    self.gripper.open_gripper()
+                else:
                     input("Press enter for next move")
-                self.get_ik(move, safety=safety)
+                    self.get_ik(move)
+            weight = 50
 
         print("Begin move")
         for move in self.planner.get_move_plan(weight, deformability):
+            self.wait_for_steady()
             print(move)
             if rospy.is_shutdown():
                 break
 
             if move == 0:
-                rospy.sleep(0.8)
                 self.gripper.open_gripper()
             elif move == 1:
-                rospy.sleep(0.5)
                 self.gripper.close_gripper()
-            elif move == 2:
-                rospy.sleep(1)
-                curr_force = self.gripper.wrench_status.wrench.force.z
-            elif move == 3:
-                rospy.sleep(0.5)
-                weight = self.gripper.wrench_status.wrench.force.z - curr_force
-                print("Delta z-force:", weight)
             elif (move == 255) or (move == 120):
                 self.gripper.close_num(move)
             else:
