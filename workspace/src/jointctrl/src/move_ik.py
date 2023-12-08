@@ -219,21 +219,39 @@ class Plan():
 
         return trans.transform
 
+    def get_lifted_pose(pose):
+        ret = Pose()
+        ret.position.x = pose.position.x
+        ret.position.y = pose.position.y
+        ret.position.z = pose.position.z + 0.1
+        ret.orientation = pose.orientation
+        return ret
+
     def return_pick_plan(self, obj_trans, dest_trans):
-        # obj = Pose()
-        # obj.position.x = obj_trans.
-        # obj.position.x =
-        # obj.position.x =
-        # obj.position.x =
+        obj = Pose()
+        obj.position.x = obj_trans.translation.x
+        obj.position.y = obj_trans.translation.y
+        obj.position.z = max(obj_trans.translation.z, self.LOWER_Z_LIMIT)
+        obj.orientation = obj_trans.rotation
+
+        dest = Pose()
+        dest.position.x = dest_trans.translation.x
+        dest.position.y = dest_trans.translation.y
+        dest.position.z = max(dest_trans.translation.z, self.LOWER_Z_LIMIT)
+        dest.orientation = dest_trans.rotation
+
+        lifted_obj = get_lifted_pose(obj)
+        lifted_dest = get_lifted_dest(obj)
+
         return [self.tuck,
-                self.pick,
-                self.grab,
+                lifted_obj,
+                obj,
                 1,
-                self.pick,
-                self.drop,
-                self.dest,
+                lifted_obj,
+                lifted_dest,
+                dest,
                 0,
-                self.drop,
+                lifted_dest,
                 self.tuck]
 
     def return_push_plan(self):
@@ -247,7 +265,7 @@ class Plan():
                 0,
                 self.drop,
                 self.tuck]
-    
+
     def return_probe_plan(self):
         return [self.tuck,
                 self.pick,
