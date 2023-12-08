@@ -42,7 +42,7 @@ class GripperCommander():
         gripper_command.rACT = rACT # must remain at 1, will activate upon being switched to one
         gripper_command.rGTO = rGTO # 1 means it is following the go to routine
         gripper_command.rATR = rATR # set to 1 for automatic release routine
-        gripper_command.rPR = rPR
+        gripper_command.rPR = min(rPR, 150)
         gripper_command.rSP = rSP # 1/2 max speed
         gripper_command.rFR = rFR # 1/4 max force
         self.robotiq_gripper_pub.publish(gripper_command)
@@ -88,10 +88,10 @@ class Plan():
     # tuck -> grab -> down -> up -> dest -> down -> release -> up -> tuck
     def __init__(self):
         self.rotate = 1
-
         self.WEIGHT_THRESHOLD = 10.0
         self.SPRING_THRESHOLD = 10.0
         self.LOWER_Z_LIMIT = 0.32
+        # NOTE: poses are in meters
 
         straight_down = Quaternion()
         straight_down.x = 1.0
@@ -114,13 +114,13 @@ class Plan():
         self.probe = Pose()
         self.probe.position.x = 0.25
         self.probe.position.y = 0.69
-        self.probe.position.z = 0.34  # Cube 0.37, box 0.41
+        self.probe.position.z = 0.37  # Cube 0.37, box 0.41, sponge 0.34
         self.probe.orientation = straight_down
 
         self.probe_down = Pose()
         self.probe_down.position.x = 0.25
         self.probe_down.position.y = 0.69
-        self.probe_down.position.z = 0.33  # Cube 0.36, box 0.40
+        self.probe_down.position.z = 0.36  # Cube 0.36, box 0.40, sponge 0.33
         self.probe_down.orientation = straight_down
 
         self.grab_p = Pose()
@@ -153,7 +153,7 @@ class Plan():
         self.dest_p.position.z = 0.32 + 0.001
         self.dest_p.orientation = straight_down
 
-    def get_plan(self, weight=10.0, spring=10.0):
+    def get_move_plan(self, weight=10.0, spring=10.0):
         '''
         Input:
         - Weight: weight
@@ -218,6 +218,21 @@ class Plan():
         ret.orientation = pose.orientation
         return ret
 
+    def get_probe_pose(self, pose):
+        ret1 = Pose()
+        ret1.position.x = pose.position.x
+        ret1.position.y = pose.position.y
+        ret1.position.z = pose.position.z + 0.005
+        ret1.orientation = pose.orientation
+
+        ret2 = Pose()
+        ret2.position.x = pose.position.x
+        ret2.position.y = pose.position.y
+        ret2.position.z = pose.position.z - 0.005
+        ret2.orientation = pose.orientation
+
+        return ret1, ret2
+
     def return_pick_plan(self, obj_trans, dest_trans):
         obj = Pose()
         obj.position.x = obj_trans.translation.x
@@ -262,14 +277,62 @@ class Plan():
                 self.tuck]
 
     def return_probe_plan(self):
-        return [self.tuck,
-                self.pick,
+        return [self.probe,
                 255,
-                self.probe,
                 self.probe_down,
-                self.pick,
+                4]  # 4 means to write the deformability constant in `deformability`
+    
+    def return_weigh_plan(self):
+        return [self.pick,
                 0,
-                self.tuck]
+                2,  # 2 means to save the current reading of force.z
+                self.grab,
+                1,
+                self.pick,
+                3,  # 3 means to calculate the delta in force.z with and without object
+                5,  # 5 means to delete our first data point
+                self.grab,
+                0,
+                self.pick,
+                2,
+                self.grab,
+                1,
+                self.pick,
+                3,
+                self.grab,
+                0,
+                self.pick,
+                2,
+                self.grab,
+                1,
+                self.pick,
+                3,
+                self.grab,
+                0,
+                self.pick,
+                2,
+                self.grab,
+                1,
+                self.pick,
+                3,
+                self.grab,
+                0,
+                self.pick,
+                2,
+                self.grab,
+                1,
+                self.pick,
+                3,
+                self.grab,
+                0,
+                self.pick,
+                2,
+                self.grab,
+                1,
+                self.pick,
+                3,
+                6,  # 6 means to calculate the average delta and write it in `weight`
+                self.grab]
 
     def return_test_plan(self):
         return [self.tuck,
@@ -345,6 +408,7 @@ class ur5_actuator():
             if user_input == 'z':
                 self.pub.publish(trajectory)
                 print("Published to the topic!")
+                
 
             # Use our rate object to sleep until it is time to publish again
             self.rate.sleep()
@@ -367,8 +431,62 @@ class ur5_actuator():
         self.get_ik(self.planner.tuck)
 
         curr_force = 0  # Variable to hold the force reading when arm is in "pick" position
+        weight_samples = 0
+        weight = 0
+        deformability = 0
 
-        for move in self.planner.get_plan():
+        # Probe routine
+        for move in self.planner.return_probe_plan():
+            print(move)
+            if rospy.is_shutdown():
+                break
+            elif move == 4:  # Get probe measurement
+                rospy.sleep(2)
+                deformability = self.gripper.wrench_status.wrench.force.z
+                print("Deformability constant:", deformability)
+            elif (move == 255) or (move == 120):
+                rospy.sleep(5)
+                self.gripper.close_num(move)
+            else:
+                input("Press enter for next move")
+                self.get_ik(move)
+        
+        # If deformability < -85, it's solid
+        # If deformability >= -85, it's deformable
+        
+        # Weigh Routine
+        for move in self.planner.return_weigh_plan():
+            print(move)
+            if rospy.is_shutdown():
+                break
+
+            elif move == 0:
+                rospy.sleep(3)
+                self.gripper.open_gripper()
+            elif move == 1:
+                rospy.sleep(3)
+                self.gripper.close_gripper()
+            elif move == 2:
+                rospy.sleep(1)
+                curr_force = self.gripper.wrench_status.wrench.force.z
+            elif move == 3:
+                rospy.sleep(0.5)
+                weight_samples += self.gripper.wrench_status.wrench.force.z - curr_force
+            elif move == 5:
+                weight_samples = 0
+            elif move == 6:
+                weight = weight_samples / 5
+                print("Average delta z-force:", weight)
+            else:
+                input("Press enter for next move")
+                self.get_ik(move)
+
+        # If weight < 9, it's light
+        # If weight >= 9, it's heavy
+
+
+
+        for move in self.planner.get_move_plan():
             print(move)
             if rospy.is_shutdown():
                 break
@@ -383,7 +501,8 @@ class ur5_actuator():
                 curr_force = self.gripper.wrench_status.wrench.force.z
             elif move == 3:
                 rospy.sleep(0.5)
-                print("Delta z-force:", self.gripper.wrench_status.wrench.force.z - curr_force)
+                weight = self.gripper.wrench_status.wrench.force.z - curr_force
+                print("Delta z-force:", weight)
             elif (move == 255) or (move == 120):
                 self.gripper.close_num(move)
             else:
