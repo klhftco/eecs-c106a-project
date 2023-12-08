@@ -20,9 +20,6 @@ from robotiq_2f_gripper_control.msg import _Robotiq2FGripper_robot_input as robo
 import tf2_ros
 import tf.transformations
 
-wrench_status = None
-
-# TODO: may need to adjust activate/open/close for tactual object detection
 class GripperCommander():
     def __init__(self):
         self.robotiq_gripper_pub = rospy.Publisher(
@@ -30,8 +27,15 @@ class GripperCommander():
         self.robotiq_gripper_sub = rospy.Subscriber(
             "Robotiq2FGripperRobotInput", robotiq_input_msg.Robotiq2FGripper_robot_input, self.gripper_status_callback)
         self.wrench_sub = rospy.Subscriber('/wrench_averaged', forceReading, self.wrench_callback)
-        # self.wrench_status = forceReading.wrench_stamped()
+        
         self.gripper_status = None
+        self.wrench_status = None
+
+    def gripper_status_callback(self, robotiq_input_msg):
+        self.gripper_status = robotiq_input_msg
+
+    def wrench_callback(self, wrench_msg):
+        self.wrench_status = wrench_msg
 
     def send_gripper_command(self, rPR, rACT=1, rGTO=1, rATR=0, rSP=128, rFR=32):
         gripper_command = robotiq_output_msg.Robotiq2FGripper_robot_output()
@@ -43,25 +47,15 @@ class GripperCommander():
         gripper_command.rFR = rFR # 1/4 max force
         self.robotiq_gripper_pub.publish(gripper_command)
 
-    def gripper_status_callback(self, robotiq_input_msg):
-        self.gripper_status = robotiq_input_msg
-
-    def wrench_callback(self, wrench_msg):
-        global wrench_status
-        wrench_status = wrench_msg
-        # print(self.wrench_status.wrench.force.z)
-
     def activate_gripper(self):
-        #if gripper.status.rACT == 1: give warining to activate
         self.send_gripper_command(rPR=0, rACT=1, rGTO=0, rATR=0, rSP=0, rFR=0)
-        rospy.sleep(1)
+        rospy.sleep(0.5)
         self.send_gripper_command(rPR=0, rACT=0, rGTO=0, rATR=0, rSP=0, rFR=0)
-        rospy.sleep(1)
+        rospy.sleep(0.5)
         self.send_gripper_command(rPR=0, rACT=1, rGTO=0, rATR=0, rSP=128, rFR=48)
-        rospy.sleep(1)
+        rospy.sleep(0.5)
 
     def open_gripper(self):
-        # if gripper.status.rACT == 0: give warining to activate
         self.send_gripper_command(rPR=0, rSP=255, rFR=255)
         while self.gripper_status.gOBJ != 1 and self.gripper_status.gPO > 5:
             # print("gOBJ: " + str(self.gripper_status.gOBJ))
@@ -71,36 +65,20 @@ class GripperCommander():
         self.send_gripper_command(rPR=self.gripper_status.gPO, rGTO=0, rSP=16, rFR=255)
 
     def close_gripper(self):
-        # if gripper.status.rACT == 0: give warining to activate
         self.send_gripper_command(rPR=255, rSP=1, rFR=255)
         while self.gripper_status.gOBJ != 2 and self.gripper_status.gPO < 250:
-            # print("gOBJ: " + str(self.gripper_status.gOBJ))
-            # print("gPO: " + str(self.gripper_status.gPO))
-            # print("")
             pass
         self.send_gripper_command(rPR=self.gripper_status.gPO, rGTO=0, rSP=1, rFR=255)
 
-    def close_num(self, position):
-        # if gripper.status.rACT == 0: give warining to activate
-        self.send_gripper_command(rPR=position, rGTO=1, rSP=255, rFR=255)
-
     def lookup_gripper(self):
-        tfBuffer = tf2_ros.Buffer() ## TODO: initialize a buffer
-        tfListener = tf2_ros.TransformListener(tfBuffer) ## TODO: initialize a transform listener
-
+        tfBuffer = tf2_ros.Buffer()
+        tfListener = tf2_ros.TransformListener(tfBuffer) 
         try:
-            # TODO: lookup the transform and save it in trans
-            # The rospy.Time(0) is the latest available
-            # The rospy.Duration(10.0) is the amount of time to wait for the transform to be available before throwing an exception
             trans = tfBuffer.lookup_transform('base_link', 'tool0', rospy.Time(0), rospy.Duration(10.0))
-            print(trans)
         except Exception as e:
             print(e)
             print("Retrying ...")
-
-        # grip_pos = [getattr(trans.transform.translation, dim) for dim in ('x', 'y', 'z')]
-        # return np.array(grip_pos)
-        return trans.transform
+        return trans.transforms
 
 class Plan():
     # tuck -> grab -> down -> up -> dest -> down -> release -> up -> tuck
@@ -169,7 +147,7 @@ class Plan():
         self.dest_p.position.z = 0.32 + 0.001
         self.dest_p.orientation = straight_down
 
-    def planner(self, weight, spring):
+    def get_plan(self, weight=10.0, spring=10.0):
         '''
         Input:
         - Weight: weight
@@ -183,14 +161,18 @@ class Plan():
         # If light, rigid -> push/pick
         # If light, deformable -> pick
 
+        obj = self.lookup_tag(7, 1)
+        dest = self.lookup_tag(6, -1)
+        return self.return_pick_plan(obj, dest)
+
         # if heavy, push
-        if weight > WEIGHT_THRESHOLD:
-            if spring > SPRING_THRESHOLD:
+        if weight > self.WEIGHT_THRESHOLD:
+            if spring > self.SPRING_THRESHOLD:
                 return True
             else:
                 return False
         else: # weight <= threshold
-            if spring > SPRING_THRESHOLD:
+            if spring > self.SPRING_THRESHOLD:
                 return True
             else:
                 return False
@@ -199,7 +181,7 @@ class Plan():
         newPlan = None
         return newPlan
 
-    def lookup_tag(tag_number):
+    def lookup_tag(self, tag_number, rotate=1):
         # initialize a tf buffer and listener
         tfBuffer = tf2_ros.Buffer()
         tfListener = tf2_ros.TransformListener(tfBuffer)
@@ -213,8 +195,8 @@ class Plan():
             print("Retrying ...")
 
         quat = [getattr(trans.transform.rotation, dim) for dim in ('x', 'y', 'z', 'w')]
-        euler = [-np.pi, 0, tf.transformations.euler_from_quaternion(quat)[2]]
-        quat = tf.transformations.quaternion_from_euler(euler)
+        euler = [-np.pi, 0, rotate * tf.transformations.euler_from_quaternion(quat)[2] - np.pi]
+        quat = tf.transformations.quaternion_from_euler(euler[0], euler[1], euler[2])
 
         rot = Quaternion()
         rot.x = quat[0]
@@ -225,7 +207,7 @@ class Plan():
 
         return trans.transform
 
-    def get_lifted_pose(pose):
+    def get_lifted_pose(self, pose):
         ret = Pose()
         ret.position.x = pose.position.x
         ret.position.y = pose.position.y
@@ -246,11 +228,15 @@ class Plan():
         dest.position.z = max(dest_trans.translation.z, self.LOWER_Z_LIMIT)
         dest.orientation = dest_trans.rotation
 
-        lifted_obj = get_lifted_pose(obj)
-        lifted_dest = get_lifted_dest(obj)
+        lifted_obj = self.get_lifted_pose(obj)
+        lifted_dest = self.get_lifted_pose(dest)
 
-        return [self.tuck,
-                lifted_obj,
+        # print(dest)
+        # print(lifted_dest)
+        # print(obj)
+        # print(lifted_obj)
+
+        return [lifted_obj,
                 obj,
                 1,
                 lifted_obj,
@@ -327,140 +313,85 @@ class Plan():
                 self.pick,
                 self.tuck]
 
-def main():
-    # Wait for the IK service to become available
-    print("Started the program!")
-    rospy.wait_for_service('compute_ik')
-    print("compute_ik service is running.")
-    rospy.init_node('service_query')
-    # Create the function used to call the service
-    compute_ik = rospy.ServiceProxy('compute_ik', GetPositionIK)
+class ur5_actuator():
+    def __init__(self):
+        self.pub = rospy.Publisher('/scaled_pos_joint_traj_controller/command', JointTrajectory, queue_size=10)
+        self.rate = rospy.Rate(5)
+        self.gripper = GripperCommander()
+        self.move_group = MoveGroupCommander("manipulator")
+        self.planner = Plan()
+        self.compute_ik = None
 
-    gripper = GripperCommander()
-    gripper.activate_gripper()
+    def get_ik(self, pose):
+        request = GetPositionIKRequest()
+        request.ik_request.group_name = "manipulator"
+        request.ik_request.ik_link_name = "tool0"
+        request.ik_request.pose_stamped.header.frame_id = "base_link"
+        request.ik_request.pose_stamped.pose = pose
+        try:
+            response = self.compute_ik(request)
+            self.move_group.set_pose_target(request.ik_request.pose_stamped)
 
-    # Create our own publisher to publist to the command topic
-    pub = rospy.Publisher('/scaled_pos_joint_traj_controller/command', JointTrajectory, queue_size=10)
-    r = rospy.Rate(5) # suggested lab code was 10Hz FR = 150
-
-    complete = False
-    plan = Plan().return_probe_plan()
-    move_index = 0
-
-    curr_force = 0  # Variable to hold the force reading when arm is in "pick" position
-
-    input("Press enter to begin")
-    gripper.open_gripper()
-
-    for move in plan:
-        if rospy.is_shutdown():
-            break
-
-        # print(move)
-
-        # if move is a number, operate gripper appropriately
-        if move == 0:
-            gripper.open_gripper()
-        elif move == 1:
-            gripper.close_gripper()
-        elif move == 2:
-            curr_force = wrench_status.wrench.force.z
-        elif move == 3:
-            print("Delta z-force:", wrench_status.wrench.force.z - curr_force)
-        elif (move == 255) or (move == 120):
-            gripper.close_num(move)
-        else: # otherwise, construct IK request and compute path between points
-            input("Press enter for next move")
-
-            # Construct the request
-            request = GetPositionIKRequest()
-            request.ik_request.group_name = "manipulator"
-            request.ik_request.ik_link_name = "tool0"
-            request.ik_request.pose_stamped.header.frame_id = "base_link"
-            request.ik_request.pose_stamped.pose = move
-
-            try:
-                response = compute_ik(request)
-                group = MoveGroupCommander("manipulator")
-                group.set_pose_target(request.ik_request.pose_stamped)
-
-                # Plan IK
-                plan = group.plan()[1].joint_trajectory
-                print(plan)
+            trajectory = self.move_group.plan()[1].joint_trajectory
+            # print(trajectory)
+            user_input = ''
+            while (user_input != 'z'):
                 user_input = input("Enter 'z' if the trajectory looks safe on RVIZ")
 
-                # Execute IK if safe
-                if user_input == 'z':
-                    pub.publish(plan)
-                    print("Published to the topic!")
+            # Execute IK if safe
+            if user_input == 'z':
+                self.pub.publish(trajectory)
+                print("Published to the topic!")
 
-                # Use our rate object to sleep until it is time to publish again
-                r.sleep()
+            # Use our rate object to sleep until it is time to publish again
+            self.rate.sleep()
 
-            except rospy.ServiceException as e:
-                print("Service call failed: %s"%e)
+        except rospy.ServiceException as e:
+            print("Service call failed: %s"%e)
+
+    def run(self):
+        # Wait for the IK service to become available
+        print("Started the program!")
+        rospy.wait_for_service('compute_ik')
+        print("compute_ik service is running.")
+        rospy.init_node('service_query')
+        # Create the function used to call the service
+        self.compute_ik = rospy.ServiceProxy('compute_ik', GetPositionIK)    
+
+        self.gripper.activate_gripper()
+        self.gripper.open_gripper()
+        self.get_ik(self.planner.tuck)
+
+        curr_force = 0  # Variable to hold the force reading when arm is in "pick" position
+
+        for move in self.planner.get_plan():
+            print(move)
+            if rospy.is_shutdown():
+                break
+
+            if move == 0:
+                self.gripper.open_gripper()
+            elif move == 1:
+                rospy.sleep(0.5)
+                self.gripper.close_gripper()
+            elif move == 2:
+                rospy.sleep(0.5)
+                curr_force = self.gripper.wrench_status.wrench.force.z
+            elif move == 3:
+                rospy.sleep(0.5)
+                print("Delta z-force:", self.gripper.wrench_status.wrench.force.z - curr_force)
+            elif (move == 255) or (move == 120):
+                self.gripper.close_num(move)
+            else:
+                input("Press enter for next move")
+                self.get_ik(move)
+    
+def main():
+    ur5 = ur5_actuator()
+    
+    input("Press enter to begin")
+    ur5.run()
 
 # Python's syntax for a main() method
 if __name__ == '__main__':
     main()
-
-
-# def temp():
-#     while not rospy.is_shutdown() and not complete:
-
-#         input('Press [ Enter ] to begin planning: ')
-
-#         # Construct the request
-#         request = GetPositionIKRequest()
-#         request.ik_request.group_name = "manipulator"
-#         request.ik_request.ik_link_name = "tool0"
-#         # request.ik_request.attempts = 20
-#         request.ik_request.pose_stamped.header.frame_id = "base_link"
-
-#         input('Press [ Enter ] to check location of gripper')
-#         cur_pose = gripper.lookup_gripper()
-
-#         input('Press [ Enter ] to plan trajectory of gripper to desired location')
-
-#         # Set the desired orientation for the end effector HERE
-#         request.ik_request.pose_stamped.pose.position.x = 0.0
-#         request.ik_request.pose_stamped.pose.position.y = 0.3
-#         request.ik_request.pose_stamped.pose.position.z = 0.5  # Keep the z-value greater than 0.35 at all times
-#         request.ik_request.pose_stamped.pose.orientation.x = 0.0
-#         request.ik_request.pose_stamped.pose.orientation.y = 1.0
-#         request.ik_request.pose_stamped.pose.orientation.z = 0.0
-#         request.ik_request.pose_stamped.pose.orientation.w = 0.0
-
-#         try:
-#             # Send the request to the service
-#             response = compute_ik(request)
-
-#             # Print the response HERE
-#             group = MoveGroupCommander("manipulator")
-
-#             # Setting position and orientation target
-#             group.set_pose_target(request.ik_request.pose_stamped)
-
-#             # TRY THIS
-#             # Setting just the position without specifying the orientation
-#             ### group.set_position_target([0.5, 0.5, 0.0])
-
-#             # Plan IK
-#             plan = group.plan()[1].joint_trajectory
-#             # print(type(plan[0]))
-#             # print(type(plan[1]))
-#             # print(type(plan[2]))
-#             print(plan)
-#             user_input = input("Enter 'y' if the trajectory looks safe on RVIZ")
-
-#             # Execute IK if safe
-#             if user_input == 'y':
-#                 # group.execute(plan)
-#                 pub.publish(plan)
-#                 print("Published to the topic!")
-
-#             # Use our rate object to sleep until it is time to publish again
-#             r.sleep()
-
-#         except rospy.ServiceException as e:
-#             print("Service call failed: %s"%e)
