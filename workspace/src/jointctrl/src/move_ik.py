@@ -87,6 +87,8 @@ class GripperCommander():
 class Plan():
     # tuck -> grab -> down -> up -> dest -> down -> release -> up -> tuck
     def __init__(self):
+        self.rotate = 1
+
         self.WEIGHT_THRESHOLD = 10.0
         self.SPRING_THRESHOLD = 10.0
         self.LOWER_Z_LIMIT = 0.32
@@ -165,8 +167,8 @@ class Plan():
         # If light, rigid -> push/pick
         # If light, deformable -> pick
 
-        obj = self.lookup_tag(7, 1)
-        dest = self.lookup_tag(6, -1)
+        obj = self.lookup_tag(7)
+        dest = self.lookup_tag(6)
         return self.return_pick_plan(obj, dest)
 
         # if heavy, push
@@ -185,22 +187,19 @@ class Plan():
         newPlan = None
         return newPlan
 
-    def lookup_tag(self, tag_number, rotate=1):
-        # initialize a tf buffer and listener
+    def lookup_tag(self, tag_number):
         tfBuffer = tf2_ros.Buffer()
         tfListener = tf2_ros.TransformListener(tfBuffer)
-
         try:
-            # lookup the transform from ar_marker to global frame
-            # TODO: rename frames accordingly
             trans = tfBuffer.lookup_transform('base_link', f'ar_marker_{tag_number}', rospy.Time(0), rospy.Duration(10.0))
         except Exception as e:
             print(e)
             print("Retrying ...")
 
         quat = [getattr(trans.transform.rotation, dim) for dim in ('x', 'y', 'z', 'w')]
-        euler = [-np.pi, 0, rotate * tf.transformations.euler_from_quaternion(quat)[2] - np.pi]
+        euler = [-np.pi, 0, self.rotate * tf.transformations.euler_from_quaternion(quat)[2] - np.pi]
         quat = tf.transformations.quaternion_from_euler(euler[0], euler[1], euler[2])
+        self.rotate *= -1
 
         rot = Quaternion()
         rot.x = quat[0]
@@ -320,7 +319,7 @@ class Plan():
 class ur5_actuator():
     def __init__(self):
         self.pub = rospy.Publisher('/scaled_pos_joint_traj_controller/command', JointTrajectory, queue_size=10)
-        self.rate = rospy.Rate(5)
+        self.rate = None
         self.gripper = GripperCommander()
         self.move_group = MoveGroupCommander("manipulator")
         self.planner = Plan()
@@ -359,6 +358,7 @@ class ur5_actuator():
         rospy.wait_for_service('compute_ik')
         print("compute_ik service is running.")
         rospy.init_node('service_query')
+        self.rate = rospy.Rate(5)
         # Create the function used to call the service
         self.compute_ik = rospy.ServiceProxy('compute_ik', GetPositionIK)    
 
@@ -379,7 +379,7 @@ class ur5_actuator():
                 rospy.sleep(0.5)
                 self.gripper.close_gripper()
             elif move == 2:
-                rospy.sleep(0.5)
+                rospy.sleep(1)
                 curr_force = self.gripper.wrench_status.wrench.force.z
             elif move == 3:
                 rospy.sleep(0.5)
