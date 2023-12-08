@@ -30,6 +30,7 @@ class GripperCommander():
         
         self.gripper_status = None
         self.wrench_status = None
+        self.min_grip = 142
 
     def gripper_status_callback(self, robotiq_input_msg):
         self.gripper_status = robotiq_input_msg
@@ -42,7 +43,7 @@ class GripperCommander():
         gripper_command.rACT = rACT # must remain at 1, will activate upon being switched to one
         gripper_command.rGTO = rGTO # 1 means it is following the go to routine
         gripper_command.rATR = rATR # set to 1 for automatic release routine
-        gripper_command.rPR = min(rPR, 150)
+        gripper_command.rPR = rPR
         gripper_command.rSP = rSP # 1/2 max speed
         gripper_command.rFR = rFR # 1/4 max force
         self.robotiq_gripper_pub.publish(gripper_command)
@@ -57,18 +58,12 @@ class GripperCommander():
 
     def open_gripper(self):
         self.send_gripper_command(rPR=0, rSP=255, rFR=255)
-        while self.gripper_status.gOBJ != 1 and self.gripper_status.gPO > 5:
-            # print("gOBJ: " + str(self.gripper_status.gOBJ))
-            # print("gPO: " + str(self.gripper_status.gPO))
-            # print("")
-            pass
-        self.send_gripper_command(rPR=self.gripper_status.gPO, rGTO=0, rSP=16, rFR=255)
 
     def close_gripper(self):
-        self.send_gripper_command(rPR=255, rSP=1, rFR=255)
-        while self.gripper_status.gOBJ != 2 and self.gripper_status.gPO < 250:
+        self.send_gripper_command(rPR=142, rSP=1, rFR=255)
+        while self.gripper_status.gOBJ != 2 and self.gripper_status.gPO <= 140:
             pass
-        self.send_gripper_command(rPR=self.gripper_status.gPO, rGTO=0, rSP=1, rFR=255)
+        self.send_gripper_command(rPR=self.gripper_status.gPO, rGTO=0, rSP=64, rFR=255)
 
     def close_num(self, position):
         # if gripper.status.rACT == 0: give warining to activate
@@ -88,8 +83,9 @@ class Plan():
     # tuck -> grab -> down -> up -> dest -> down -> release -> up -> tuck
     def __init__(self):
         self.rotate = 1
-        self.WEIGHT_THRESHOLD = 10.0
-        self.SPRING_THRESHOLD = 10.0
+        self.WEIGHT_THRESHOLD = 7.0
+        self.SPRING_THRESHOLD = -35.0
+        self.FRICTION_THRESHOLD = 10
         self.LOWER_Z_LIMIT = 0.32
         # NOTE: poses are in meters
 
@@ -105,83 +101,64 @@ class Plan():
         self.tuck.position.z = 0.5
         self.tuck.orientation = straight_down
 
-        self.grab = Pose()
-        self.grab.position.x = 0.25
-        self.grab.position.y = 0.69
-        self.grab.position.z = 0.32
-        self.grab.orientation = straight_down
+        self.pick = None
+        self.grab = None
+        self.dest = None
+        self.drop = None
+        self.probe = None
+        self.probe_down = None
 
-        self.probe = Pose()
-        self.probe.position.x = 0.25
-        self.probe.position.y = 0.69
-        self.probe.position.z = 0.37  # Cube 0.37, box 0.41, sponge 0.34
-        self.probe.orientation = straight_down
+    def locate_objects(self, obj_ar, dest_ar):
+        obj = self.lookup_tag(obj_ar)
+        obj_pose = Pose()
+        obj_pose.position.x = obj.translation.x
+        obj_pose.position.y = obj.translation.y
+        obj_pose.position.z = obj.translation.z
+        obj_pose.orientation = obj.rotation
+        self.grab, self.pick = self.get_pick_pose(obj_pose)
+        self.probe, self.probe_down = self.get_probe_pose(obj_pose)
+        print(self.probe)
 
-        self.probe_down = Pose()
-        self.probe_down.position.x = 0.25
-        self.probe_down.position.y = 0.69
-        self.probe_down.position.z = 0.36  # Cube 0.36, box 0.40, sponge 0.33
-        self.probe_down.orientation = straight_down
+        dest = self.lookup_tag(dest_ar)
+        dest_pose = Pose()
+        dest_pose.position.x = dest.translation.x
+        dest_pose.position.y = dest.translation.y
+        dest_pose.position.z = dest.translation.z
+        dest_pose.orientation = dest.rotation
+        self.dest, self.drop = self.get_pick_pose(dest_pose)
 
-        self.grab_p = Pose()
-        self.grab_p.position.x = 0.25
-        self.grab_p.position.y = 0.69
-        self.grab_p.position.z = 0.32 + 0.001
-        self.grab_p.orientation = straight_down
-
-        self.pick = Pose()
-        self.pick.position.x = 0.25
-        self.pick.position.y = 0.69
-        self.pick.position.z = 0.32 + 0.1
-        self.pick.orientation = straight_down
-
-        self.drop = Pose()
-        self.drop.position.x = -0.21
-        self.drop.position.y = 0.69
-        self.drop.position.z = 0.32 + 0.1
-        self.drop.orientation = straight_down
-
-        self.dest = Pose()
-        self.dest.position.x = -0.21
-        self.dest.position.y = 0.69
-        self.dest.position.z = 0.32
-        self.dest.orientation = straight_down
-
-        self.dest_p = Pose()
-        self.dest_p.position.x = -0.21
-        self.dest_p.position.y = 0.69
-        self.dest_p.position.z = 0.32 + 0.001
-        self.dest_p.orientation = straight_down
-
-    def get_move_plan(self, weight=10.0, spring=10.0):
+    def get_move_plan(self, weight=10.0, spring=10.0, friction=0.0):
         '''
         Input:
         - Weight: weight
         - Spring Constant: spring
 
-        Returns output as boolean shouldPush
+        Returns plan corresponding to planning score
         '''
         # Consider 4 cases:
         # If heavy, rigid -> push
-        # If heavy, deformable -> pick
-        # If light, rigid -> push/pick
-        # If light, deformable -> pick
+        # If heavy, deformable -> push
+        # If light, rigid -> pick
+        # If light, deformable -> push
+        # If sticky -> pick
 
-        obj = self.lookup_tag(7)
-        dest = self.lookup_tag(6)
-        return self.return_pick_plan(obj, dest)
+        # Empirical data:
+        # If deformability < -85, it's solid
+        # If deformability >= -85, it's deformable
+        # If weight < 9, it's light
+        # If weight >= 9, it's heavy
 
-        # if heavy, push
-        if weight > self.WEIGHT_THRESHOLD:
-            if spring > self.SPRING_THRESHOLD:
-                return True
-            else:
-                return False
-        else: # weight <= threshold
-            if spring > self.SPRING_THRESHOLD:
-                return True
-            else:
-                return False
+        c_weight = 1 / self.WEIGHT_THRESHOLD # > 1 if heavy
+        c_spring = -1 / self.SPRING_THRESHOLD # > 1 if deformable
+        c_friction = -1 / self.FRICTION_THRESHOLD
+
+        planning_score = c_weight * np.abs(weight) + c_spring * max(0, spring) + c_friction * friction
+        if (planning_score / 2) > 1:
+            print(planning_score, ": Push")
+            return self.return_push_plan()
+        else: 
+            print(planning_score, ": Pick")
+            return self.return_pick_plan()
 
     def if_fail(self):
         newPlan = None
@@ -197,7 +174,9 @@ class Plan():
             print("Retrying ...")
 
         quat = [getattr(trans.transform.rotation, dim) for dim in ('x', 'y', 'z', 'w')]
-        euler = [-np.pi, 0, self.rotate * tf.transformations.euler_from_quaternion(quat)[2] - np.pi]
+        yaw = tf.transformations.euler_from_quaternion(quat)[2]
+        yaw = np.deg2rad(np.rad2deg(yaw) % 90)
+        euler = [-np.pi, 0, yaw]
         quat = tf.transformations.quaternion_from_euler(euler[0], euler[1], euler[2])
         self.rotate *= -1
 
@@ -210,68 +189,54 @@ class Plan():
 
         return trans.transform
 
-    def get_lifted_pose(self, pose):
-        ret = Pose()
-        ret.position.x = pose.position.x
-        ret.position.y = pose.position.y
-        ret.position.z = pose.position.z + 0.1
-        ret.orientation = pose.orientation
-        return ret
-
-    def get_probe_pose(self, pose):
+    def get_pick_pose(self, pose):
         ret1 = Pose()
         ret1.position.x = pose.position.x
         ret1.position.y = pose.position.y
-        ret1.position.z = pose.position.z + 0.005
+        ret1.position.z = max(pose.position.z + 0.24, self.LOWER_Z_LIMIT)
         ret1.orientation = pose.orientation
 
         ret2 = Pose()
         ret2.position.x = pose.position.x
         ret2.position.y = pose.position.y
-        ret2.position.z = pose.position.z - 0.005
+        ret2.position.z = ret1.position.z + 0.1
         ret2.orientation = pose.orientation
 
-        return ret1, ret2
+        return ret1, ret2 # (grab, lift)
 
-    def return_pick_plan(self, obj_trans, dest_trans):
-        obj = Pose()
-        obj.position.x = obj_trans.translation.x
-        obj.position.y = obj_trans.translation.y
-        obj.position.z = max(obj_trans.translation.z, self.LOWER_Z_LIMIT)
-        obj.orientation = obj_trans.rotation
+    def get_probe_pose(self, pose):
+        ret1 = Pose()
+        ret1.position.x = pose.position.x
+        ret1.position.y = pose.position.y
+        ret1.position.z = pose.position.z + 0.296 + 0.005
+        ret1.orientation = pose.orientation
 
-        dest = Pose()
-        dest.position.x = dest_trans.translation.x
-        dest.position.y = dest_trans.translation.y
-        dest.position.z = max(dest_trans.translation.z, self.LOWER_Z_LIMIT)
-        dest.orientation = dest_trans.rotation
+        ret2 = Pose()
+        ret2.position.x = pose.position.x
+        ret2.position.y = pose.position.y
+        ret2.position.z = pose.position.z + 0.296 - 0.005
+        ret2.orientation = pose.orientation
 
-        lifted_obj = self.get_lifted_pose(obj)
-        lifted_dest = self.get_lifted_pose(dest)
+        return ret1, ret2 # (probe_start, probe_end)
 
-        # print(dest)
-        # print(lifted_dest)
-        # print(obj)
-        # print(lifted_obj)
+    def update_pick_pose(self, pose):
+        pose.position.z -= 0.296
+        self.grab, self.pick = self.get_pick_pose(pose)
 
-        return [lifted_obj,
-                obj,
+    def return_pick_plan(self):
+        return [# already in grab
                 1,
-                lifted_obj,
-                lifted_dest,
-                dest,
+                self.pick,
+                self.drop,
+                self.dest,
                 0,
-                lifted_dest,
+                self.drop,
                 self.tuck]
 
     def return_push_plan(self):
-        return [self.tuck,
-                self.pick,
-                self.grab,
+        return [# already in grab
                 1,
-                self.pick,
-                self.grab_p,
-                self.dest_p,
+                self.dest,
                 0,
                 self.drop,
                 self.tuck]
@@ -279,8 +244,7 @@ class Plan():
     def return_probe_plan(self):
         return [self.probe,
                 255,
-                self.probe_down,
-                4]  # 4 means to write the deformability constant in `deformability`
+                4]  # 4 means to go down until deform < 0 and write the deformability constant in `deformability`
     
     def return_weigh_plan(self):
         return [self.pick,
@@ -388,7 +352,7 @@ class ur5_actuator():
         self.planner = Plan()
         self.compute_ik = None
 
-    def get_ik(self, pose):
+    def get_ik(self, pose, safety=True):
         request = GetPositionIKRequest()
         request.ik_request.group_name = "manipulator"
         request.ik_request.ik_link_name = "tool0"
@@ -401,11 +365,11 @@ class ur5_actuator():
             trajectory = self.move_group.plan()[1].joint_trajectory
             # print(trajectory)
             user_input = ''
-            while (user_input != 'z'):
+            while (user_input != 'z' and safety):
                 user_input = input("Enter 'z' if the trajectory looks safe on RVIZ")
 
             # Execute IK if safe
-            if user_input == 'z':
+            if user_input == 'z' or not safety:
                 self.pub.publish(trajectory)
                 print("Published to the topic!")
                 
@@ -426,9 +390,13 @@ class ur5_actuator():
         # Create the function used to call the service
         self.compute_ik = rospy.ServiceProxy('compute_ik', GetPositionIK)    
 
+        self.get_ik(self.planner.tuck)
         self.gripper.activate_gripper()
         self.gripper.open_gripper()
-        self.get_ik(self.planner.tuck)
+
+        obj_ar = int(input("Object AR Marker #: "))
+        dest_ar = 6
+        self.planner.locate_objects(obj_ar, dest_ar)
 
         curr_force = 0  # Variable to hold the force reading when arm is in "pick" position
         weight_samples = 0
@@ -436,26 +404,40 @@ class ur5_actuator():
         deformability = 0
 
         # Probe routine
-        for move in self.planner.return_probe_plan():
+        print("Begin probe")
+        for i, move in enumerate(self.planner.return_probe_plan()):
             print(move)
             if rospy.is_shutdown():
                 break
+            elif self.gripper.wrench_status.wrench.force.z < 0:
+                deformability = self.gripper.wrench_status.wrench.force.z
+                self.get_ik(self.planner.probe)
+                break;
             elif move == 4:  # Get probe measurement
+                self.get_ik(self.planner.probe_down)
                 rospy.sleep(2)
                 deformability = self.gripper.wrench_status.wrench.force.z
+                while deformability > 0:
+                    # input("Press enter to probe down more")
+                    self.planner.probe_down.position.z -= 0.005
+                    self.get_ik(self.planner.probe_down, safety=False)
+                    rospy.sleep(2)
+                    deformability = self.gripper.wrench_status.wrench.force.z    
                 print("Deformability constant:", deformability)
+                self.planner.update_pick_pose(self.planner.probe_down)
             elif (move == 255) or (move == 120):
                 rospy.sleep(5)
                 self.gripper.close_num(move)
             else:
                 input("Press enter for next move")
                 self.get_ik(move)
-        
-        # If deformability < -85, it's solid
-        # If deformability >= -85, it's deformable
-        
+                
         # Weigh Routine
-        for move in self.planner.return_weigh_plan():
+        print("Begin weigh")
+        for i, move in enumerate(self.planner.return_weigh_plan()):
+            safety = False
+            if i < 4:
+                safety = True
             print(move)
             if rospy.is_shutdown():
                 break
@@ -478,20 +460,18 @@ class ur5_actuator():
                 weight = weight_samples / 5
                 print("Average delta z-force:", weight)
             else:
-                input("Press enter for next move")
-                self.get_ik(move)
+                if safety:
+                    input("Press enter for next move")
+                self.get_ik(move, safety=safety)
 
-        # If weight < 9, it's light
-        # If weight >= 9, it's heavy
-
-
-
-        for move in self.planner.get_move_plan():
+        print("Begin move")
+        for move in self.planner.get_move_plan(weight, deformability):
             print(move)
             if rospy.is_shutdown():
                 break
 
             if move == 0:
+                rospy.sleep(0.8)
                 self.gripper.open_gripper()
             elif move == 1:
                 rospy.sleep(0.5)
