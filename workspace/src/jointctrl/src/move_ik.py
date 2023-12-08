@@ -42,7 +42,7 @@ class GripperCommander():
         gripper_command.rSP = rSP # 1/2 max speed
         gripper_command.rFR = rFR # 1/4 max force
         self.robotiq_gripper_pub.publish(gripper_command)
-   
+
     def gripper_status_callback(self, robotiq_input_msg):
         self.gripper_status = robotiq_input_msg
 
@@ -101,11 +101,14 @@ class GripperCommander():
         # grip_pos = [getattr(trans.transform.translation, dim) for dim in ('x', 'y', 'z')]
         # return np.array(grip_pos)
         return trans.transform
-        
 
 class Plan():
     # tuck -> grab -> down -> up -> dest -> down -> release -> up -> tuck
     def __init__(self):
+        self.WEIGHT_THRESHOLD = 10.0
+        self.SPRING_THRESHOLD = 10.0
+        self.LOWER_Z_LIMIT = 0.32
+
         straight_down = Quaternion()
         straight_down.x = 1.0
         straight_down.y = 0.0
@@ -167,8 +170,30 @@ class Plan():
         self.dest_p.orientation = straight_down
 
     def planner(self, weight, spring):
-        shouldPush = False
-        return shouldPush
+        '''
+        Input:
+        - Weight: weight
+        - Spring Constant: spring
+
+        Returns output as boolean shouldPush
+        '''
+        # Consider 4 cases:
+        # If heavy, rigid -> push
+        # If heavy, deformable -> pick
+        # If light, rigid -> push/pick
+        # If light, deformable -> pick
+
+        # if heavy, push
+        if weight > WEIGHT_THRESHOLD:
+            if spring > SPRING_THRESHOLD:
+                return True
+            else:
+                return False
+        else: # weight <= threshold
+            if spring > SPRING_THRESHOLD:
+                return True
+            else:
+                return False
 
     def if_fail(self):
         newPlan = None
@@ -190,7 +215,7 @@ class Plan():
         quat = [getattr(trans.transform.rotation, dim) for dim in ('x', 'y', 'z', 'w')]
         euler = [-np.pi, 0, tf.transformations.euler_from_quaternion(quat)[2]]
         quat = tf.transformations.quaternion_from_euler(euler)
-        
+
         rot = Quaternion()
         rot.x = quat[0]
         rot.y = quat[1]
@@ -200,21 +225,39 @@ class Plan():
 
         return trans.transform
 
+    def get_lifted_pose(pose):
+        ret = Pose()
+        ret.position.x = pose.position.x
+        ret.position.y = pose.position.y
+        ret.position.z = pose.position.z + 0.1
+        ret.orientation = pose.orientation
+        return ret
+
     def return_pick_plan(self, obj_trans, dest_trans):
-        # obj = Pose()
-        # obj.position.x = obj_trans.
-        # obj.position.x = 
-        # obj.position.x = 
-        # obj.position.x = 
+        obj = Pose()
+        obj.position.x = obj_trans.translation.x
+        obj.position.y = obj_trans.translation.y
+        obj.position.z = max(obj_trans.translation.z, self.LOWER_Z_LIMIT)
+        obj.orientation = obj_trans.rotation
+
+        dest = Pose()
+        dest.position.x = dest_trans.translation.x
+        dest.position.y = dest_trans.translation.y
+        dest.position.z = max(dest_trans.translation.z, self.LOWER_Z_LIMIT)
+        dest.orientation = dest_trans.rotation
+
+        lifted_obj = get_lifted_pose(obj)
+        lifted_dest = get_lifted_dest(obj)
+
         return [self.tuck,
-                self.pick,
-                self.grab,
+                lifted_obj,
+                obj,
                 1,
-                self.pick,
-                self.drop,
-                self.dest,
+                lifted_obj,
+                lifted_dest,
+                dest,
                 0,
-                self.drop,
+                lifted_dest,
                 self.tuck]
 
     def return_push_plan(self):
@@ -228,7 +271,7 @@ class Plan():
                 0,
                 self.drop,
                 self.tuck]
-    
+
     def return_probe_plan(self):
         return [self.tuck,
                 self.pick,
@@ -328,7 +371,7 @@ def main():
             gripper.close_num(move)
         else: # otherwise, construct IK request and compute path between points
             input("Press enter for next move")
-            
+
             # Construct the request
             request = GetPositionIKRequest()
             request.ik_request.group_name = "manipulator"

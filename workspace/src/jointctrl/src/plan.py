@@ -8,8 +8,8 @@ def wrench_to_weight(sensor_msg: WrenchStamped, calib_msg: WrenchStamped):
     torque_0 = calib_msg.wrench.torque
     torque_1 = sensor_msg.wrench.torque
 
-    force_0 = np.array([force_0.x, force_0.y, force_0.z])
-    force_1 = np.array([force_1.x, force_1.y, force_1.z])
+    force_0 = np.array([force_0.z])
+    force_1 = np.array([force_1.z])
     weight = np.linalg.norm(force_1 - force_0)
 
     return weight
@@ -25,17 +25,17 @@ def wrench_to_spring(sensor_msg: WrenchStamped, calib_msg: WrenchStamped, sensor
     pos_0 = np.array([calib_pose.x, calib_pose.y, calib_pose.z])
     pos_1 = np.array([sensor_pose.x, sensor_pose.y, sensor_pose.z])
     deflection = np.linalg.norm(pos_1 - pos_0)
-    
+
     force_0 = np.array([force_0.x, force_0.y, force_0.z])
     force_1 = np.array([force_1.x, force_1.y, force_1.z])
     rxn_force = np.linalg.norm(force_1 - force_0)
-    
+
     # spring constant determination is not complete yet
     return rxn_force / deflection
 
 def planner(weight, spring):
     '''
-    Input: 
+    Input:
     - Weight: weight
     - Spring Constant: spring
 
@@ -54,7 +54,7 @@ def planner(weight, spring):
     if weight > WEIGHT_THRESHOLD:
         if spring > SPRING_THRESHOLD:
             return True
-        else: 
+        else:
             return False
     else: # weight <= threshold
         if spring > SPRING_THRESHOLD:
@@ -74,13 +74,13 @@ def main():
 # failure:
 # try to push, but hard to push (sticky? or topples over)
 # try to pick up, slips out of hand
-# try to induce failure by adding weird shapes (wrench, handles, etc.) and lowering grip strength 
+# try to induce failure by adding weird shapes (wrench, handles, etc.) and lowering grip strength
 # try taping objects to table (pushing should be relatively hard)
 
-# in the general case: if it's 
+# in the general case: if it's
 
 
 # Attempt to push: if shear force (in x/y) is greater than some threshold, something my be wrong
 # incorporate vision (AR tag not moving)
-# Attempt to pick: 
+# Attempt to pick:
 # failure should be based on poor grip --> implying poor decision
