@@ -70,6 +70,10 @@ class GripperCommander():
             pass
         self.send_gripper_command(rPR=self.gripper_status.gPO, rGTO=0, rSP=1, rFR=255)
 
+    def close_num(self, position):
+        # if gripper.status.rACT == 0: give warining to activate
+        self.send_gripper_command(rPR=position, rGTO=1, rSP=255, rFR=255)
+
     def lookup_gripper(self):
         tfBuffer = tf2_ros.Buffer()
         tfListener = tf2_ros.TransformListener(tfBuffer) 
