@@ -107,10 +107,10 @@ class Plan():
     # tuck -> grab -> down -> up -> dest -> down -> release -> up -> tuck
     def __init__(self):
         straight_down = Quaternion()
-        straight_down.x = 0.0
+        straight_down.x = 1.0
         straight_down.y = 0.0
-        straight_down.z = 1.0
-        straight_down.w = np.pi
+        straight_down.z = 0.0
+        straight_down.w = 0.0
 
         self.tuck = Pose()
         self.tuck.position.x = 0.0
@@ -127,8 +127,14 @@ class Plan():
         self.probe = Pose()
         self.probe.position.x = 0.25
         self.probe.position.y = 0.69
-        self.probe.position.z = 0.40
+        self.probe.position.z = 0.34  # Cube 0.37, box 0.41
         self.probe.orientation = straight_down
+
+        self.probe_down = Pose()
+        self.probe_down.position.x = 0.25
+        self.probe_down.position.y = 0.69
+        self.probe_down.position.z = 0.33  # Cube 0.36, box 0.40
+        self.probe_down.orientation = straight_down
 
         self.grab_p = Pose()
         self.grab_p.position.x = 0.25
@@ -228,6 +234,7 @@ class Plan():
                 self.pick,
                 255,
                 self.probe,
+                self.probe_down,
                 self.pick,
                 0,
                 self.tuck]
@@ -294,9 +301,7 @@ def main():
     r = rospy.Rate(5) # suggested lab code was 10Hz FR = 150
 
     complete = False
-    plan = Plan()
-    plan.lookup_tag()
-    # .return_test_plan()
+    plan = Plan().return_probe_plan()
     move_index = 0
 
     curr_force = 0  # Variable to hold the force reading when arm is in "pick" position
@@ -319,7 +324,7 @@ def main():
             curr_force = wrench_status.wrench.force.z
         elif move == 3:
             print("Delta z-force:", wrench_status.wrench.force.z - curr_force)
-        elif move == 255:
+        elif (move == 255) or (move == 120):
             gripper.close_num(move)
         else: # otherwise, construct IK request and compute path between points
             input("Press enter for next move")

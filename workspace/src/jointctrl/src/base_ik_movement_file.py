@@ -127,7 +127,7 @@ class Plan():
 
     def if_fail(self):
         newPlan = None
-        return newPlanZ
+        return newPlan
 
     def return_pick_plan(self):
         return [self.tuck,
